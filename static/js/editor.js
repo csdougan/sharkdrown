@@ -387,16 +387,6 @@ document.getElementById('btn-save-as').addEventListener('click', async () => {
   } catch (e) { showMsg(`Save failed: ${e.message}`, true); }
 });
 
-document.getElementById('btn-rename').addEventListener('click', () => {
-  const tab = activeTab();
-  if (!tab) return;
-  if (tab.fileHandle) { showMsg('Use Save As to rename host files', true); return; }
-  const name = prompt('Rename to (without .md):', tab.name.replace(/\.md$/, ''));
-  if (!name || !name.trim()) return;
-  tab.name = name.trim().replace(/\.md$/, '') + '.md';
-  renderTabs(); updateStatusFile(); showMsg(`Renamed to ${tab.name}`); persist();
-});
-
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); document.getElementById('btn-save').click(); }
 });
