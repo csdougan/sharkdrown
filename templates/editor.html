@@ -23,6 +23,7 @@
 
     <div id="file-controls">
       <button id="btn-new"     aria-label="New file">New</button>
+      <button id="btn-new-diagram" aria-label="New Mermaid diagram">⬡ Diagram</button>
       <button id="btn-open"    aria-label="Open file from disk">Open</button>
       <button id="btn-save"    aria-label="Save file">Save</button>
       <button id="btn-save-as" aria-label="Save As">Save As</button>
@@ -97,6 +98,9 @@
       <img src="/static/images/sharkdrown_banner.png" alt="SharkDrown" id="banner-img" />
       <p id="empty-hint">Open a file or create a new one to get started</p>
     </div>
+
+    <!-- Mermaid editor pane (shown instead of code/preview when a mermaid tab is active) -->
+    <div id="mermaid-pane" aria-label="Mermaid diagram editor"></div>
 
     <div id="pane-code" role="region" aria-label="Markdown source editor">
       <div id="editor-wrap">
@@ -225,6 +229,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/markdown.min.js"></script>
 <script>mermaid.initialize({ startOnLoad: false, theme: 'neutral' });</script>
+<script src="/static/js/mermaid_editor.js"></script>
 <script src="/static/js/editor.js"></script>
 <script src="/static/js/transform.js"></script>
 </body>

@@ -13,6 +13,8 @@ const LS = {
 
 // ── Tab state ──────────────────────────────────────────────────────────
 // Each tab: { id, name, content, isDirty, fileHandle, scrollTop, format }
+// Mermaid tabs also have: { type:'mermaid', diagramSrc }
+// type defaults to 'markdown' when absent
 let tabs     = [];
 let activeId = null;
 let tabSeq   = 0;
@@ -38,6 +40,7 @@ const fontLink       = document.getElementById('preview-font-link');
 const lineNumsEl     = document.getElementById('line-numbers');
 const btnLineNums    = document.getElementById('btn-line-nums');
 const emptyState     = document.getElementById('empty-state');
+const mermaidPane    = document.getElementById('mermaid-pane');
 
 // ── App-level state ────────────────────────────────────────────────────
 const appState = {
@@ -51,10 +54,12 @@ const appState = {
 
 // ── Persistence ────────────────────────────────────────────────────────
 function persist() {
-  const serialisable = tabs.map(t => ({
-    id: t.id, name: t.name, content: t.content,
-    isDirty: t.isDirty, scrollTop: t.scrollTop, format: t.format,
-  }));
+  const serialisable = tabs.map(t => t.type === 'mermaid'
+    ? { id: t.id, name: t.name, type: 'mermaid', diagramSrc: t.diagramSrc,
+        isDirty: t.isDirty, sourceTabId: t.sourceTabId, sourceMdId: t.sourceMdId }
+    : { id: t.id, name: t.name, content: t.content,
+        isDirty: t.isDirty, scrollTop: t.scrollTop, format: t.format, type: 'markdown' }
+  );
   try {
     localStorage.setItem(LS.TABS,       JSON.stringify(serialisable));
     localStorage.setItem(LS.ACTIVE_TAB, activeId || '');
@@ -70,7 +75,10 @@ function restore() {
     if (raw) {
       const saved = JSON.parse(raw);
       if (Array.isArray(saved) && saved.length) {
-        tabs   = saved.map(t => ({ ...t, fileHandle: null }));
+        tabs = saved.map(t => t.type === 'mermaid'
+          ? { ...t, fileHandle: null }
+          : { ...t, fileHandle: null, type: 'markdown' }
+        );
         tabSeq = tabs.reduce((m, t) => Math.max(m, parseInt(t.id.replace('tab_',''))||0), 0);
         activeId = localStorage.getItem(LS.ACTIVE_TAB) || tabs[0].id;
         if (!tabs.find(t => t.id === activeId)) activeId = tabs[0].id;
@@ -90,6 +98,11 @@ function showMsg(msg, isError = false) {
 }
 
 function updateStats() {
+  if (activeTab()?.type === 'mermaid') {
+    statusWords.textContent = '';
+    statusLines.textContent = '';
+    return;
+  }
   const text  = editorEl.value;
   const words = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
   const lines = text === '' ? 0 : text.split('\n').length;
@@ -98,6 +111,7 @@ function updateStats() {
 }
 
 function updateCursor() {
+  if (activeTab()?.type === 'mermaid') { statusCursor.textContent = ''; return; }
   const pos  = editorEl.selectionStart;
   const text = editorEl.value.substring(0, pos);
   const ln   = text.split('\n').length;
@@ -108,11 +122,15 @@ function updateCursor() {
 function isWysiwyg() { return appState.view === 'wysiwyg'; }
 
 function updateEmptyState() {
-  const noTabs = tabs.length === 0;
+  const noTabs     = tabs.length === 0;
+  const isMermaid  = !noTabs && activeTab()?.type === 'mermaid';
+  const isMarkdown = !noTabs && !isMermaid;
+
   emptyState.hidden = !noTabs;
-  document.getElementById('pane-code').style.display    = noTabs ? 'none' : '';
-  document.getElementById('pane-divider').style.display = noTabs ? 'none' : '';
-  document.getElementById('pane-preview').style.display = noTabs ? 'none' : '';
+  document.getElementById('pane-code').style.display    = isMarkdown ? '' : 'none';
+  document.getElementById('pane-divider').style.display = isMarkdown ? '' : 'none';
+  document.getElementById('pane-preview').style.display = isMarkdown ? '' : 'none';
+  mermaidPane.classList.toggle('active', isMermaid);
 }
 
 // ── Format conversion ──────────────────────────────────────────────────
@@ -218,7 +236,10 @@ function renderTabs() {
   tabBarEl.innerHTML = '';
   tabs.forEach(tab => {
     const el       = document.createElement('button');
-    el.className   = 'file-tab' + (tab.id === activeId ? ' active' : '') + (tab.isDirty ? ' dirty' : '');
+    el.className   = 'file-tab'
+      + (tab.id === activeId ? ' active' : '')
+      + (tab.isDirty ? ' dirty' : '')
+      + (tab.type === 'mermaid' ? ' mermaid-tab' : '');
     el.role        = 'tab';
     el.setAttribute('aria-selected', tab.id === activeId);
 
@@ -243,23 +264,51 @@ function renderTabs() {
 // ── Tab operations ─────────────────────────────────────────────────────
 function switchTab(id) {
   const prev = activeTab();
-  if (prev) { prev.content = editorEl.value; prev.scrollTop = editorEl.scrollTop; }
+  if (prev) {
+    if (prev.type === 'mermaid') {
+      prev.diagramSrc = window.MermaidEditor?.getSource() || prev.diagramSrc;
+    } else {
+      prev.content   = editorEl.value;
+      prev.scrollTop = editorEl.scrollTop;
+    }
+  }
   activeId = id;
   const tab = activeTab();
   if (!tab) return;
-  editorEl.value     = tab.content;
-  editorEl.scrollTop = tab.scrollTop || 0;
-  // Restore format for this tab
-  const fmt = tab.format || appState.format;
-  formatSelect.value = fmt;
-  appState.format    = fmt;
-  renderTabs();
-  updateStatusFile();
-  updateStats();
-  updateCursor();
-  schedulePreview();
-  scheduleHighlight();
-  updateLineNumbers();
+
+  if (tab.type === 'mermaid') {
+    // Override the grid so the mermaid pane fills the full workspace
+    workspace.style.gridTemplateColumns = '';
+    workspace.className = 'view-mermaid';
+    updateEmptyState();
+    renderTabs();
+    updateStatusFile();
+    window.MermaidEditor?.mount(mermaidPane);
+    window.MermaidEditor?.loadMermaid(
+      tab.diagramSrc || '',
+      tab.sourceTabId || null,
+      tab.sourceMdId  !== undefined ? tab.sourceMdId : null
+    );
+  } else {
+    // Restore view mode when switching back to a markdown tab
+    workspace.className = `view-${appState.view}`;
+    if (appState.view === 'split') restoreSplit();
+    else workspace.style.gridTemplateColumns = '';
+    window.MermaidEditor?.unmount();
+    editorEl.value     = tab.content;
+    editorEl.scrollTop = tab.scrollTop || 0;
+    const fmt = tab.format || appState.format;
+    formatSelect.value = fmt;
+    appState.format    = fmt;
+    updateEmptyState();
+    renderTabs();
+    updateStatusFile();
+    updateStats();
+    updateCursor();
+    schedulePreview();
+    scheduleHighlight();
+    updateLineNumbers();
+  }
   persist();
 }
 
@@ -267,6 +316,18 @@ function createTab(name, content = '', fileHandle = null, format = null) {
   const tab = {
     id: newTabId(), name, content, isDirty: false,
     fileHandle, scrollTop: 0, format: format || appState.format,
+    type: 'markdown',
+  };
+  tabs.push(tab);
+  switchTab(tab.id);
+  return tab;
+}
+
+function createMermaidTab(name = 'Diagram', src = '', sourceTabId = null, sourceMdId = null) {
+  const tab = {
+    id: newTabId(), name, type: 'mermaid',
+    diagramSrc: src, isDirty: false,
+    sourceTabId, sourceMdId,
   };
   tabs.push(tab);
   switchTab(tab.id);
@@ -282,6 +343,7 @@ function closeTab(id) {
   if (tabs.length === 0) {
     activeId = null;
     editorEl.value = '';
+    window.MermaidEditor?.unmount();
     renderTabs();
     updateStatusFile();
     updateStats();
@@ -293,12 +355,20 @@ function closeTab(id) {
   if (activeId === id) {
     activeId = tabs[Math.min(idx, tabs.length - 1)].id;
     const next = activeTab();
-    editorEl.value     = next.content;
-    editorEl.scrollTop = next.scrollTop || 0;
+    if (next.type === 'mermaid') {
+      updateEmptyState();
+      window.MermaidEditor?.mount(mermaidPane);
+      window.MermaidEditor?.loadMermaid(next.diagramSrc || '', next.sourceTabId, next.sourceMdId);
+    } else {
+      window.MermaidEditor?.unmount();
+      editorEl.value     = next.content;
+      editorEl.scrollTop = next.scrollTop || 0;
+      updateStats();
+      schedulePreview();
+      updateLineNumbers();
+    }
     updateStatusFile();
-    updateStats();
-    schedulePreview();
-    updateLineNumbers();
+    updateEmptyState();
   }
   renderTabs();
   persist();
@@ -337,6 +407,10 @@ document.getElementById('btn-new').addEventListener('click', () => {
   markDirty();
 });
 
+document.getElementById('btn-new-diagram').addEventListener('click', () => {
+  createMermaidTab('Diagram');
+});
+
 document.getElementById('btn-open').addEventListener('click', async () => {
   if (!fsaSupported()) { showMsg('File System Access API not supported', true); return; }
   let handles;
@@ -361,6 +435,7 @@ document.getElementById('btn-save').addEventListener('click', async () => {
   if (!fsaSupported()) { showMsg('File System Access API not supported', true); return; }
   const tab = activeTab();
   if (!tab) return;
+  if (tab.type === 'mermaid') { showMsg('Use Export in the diagram editor to save', true); return; }
   if (!tab.fileHandle) { document.getElementById('btn-save-as').click(); return; }
   try {
     const perm = await tab.fileHandle.queryPermission({ mode: 'readwrite' });
@@ -377,6 +452,7 @@ document.getElementById('btn-save-as').addEventListener('click', async () => {
   if (!fsaSupported()) { showMsg('File System Access API not supported', true); return; }
   const tab = activeTab();
   if (!tab) return;
+  if (tab.type === 'mermaid') { showMsg('Use Export in the diagram editor to save', true); return; }
   let handle;
   try { handle = await window.showSaveFilePicker({ ...PICKER_OPTS, suggestedName: tab.name }); }
   catch (e) { if (e.name !== 'AbortError') showMsg('Could not open save dialog', true); return; }
@@ -457,9 +533,26 @@ async function renderPreview() {
   });
   const data = await res.json();
   previewEl.innerHTML = data.html;
-  previewEl.querySelectorAll('.mermaid').forEach(el => {
+  previewEl.querySelectorAll('.mermaid').forEach((el, idx) => {
     el.contentEditable = 'false';
     el.dataset.src = el.textContent;
+    el.title = 'Click to edit in Mermaid editor';
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => {
+      const src        = el.dataset.src?.trim() || '';
+      const currentTab = activeTab();
+      // Find or create a mermaid tab linked to this block
+      const existing = tabs.find(t =>
+        t.type === 'mermaid' &&
+        t.sourceTabId === currentTab?.id &&
+        t.sourceMdId  === idx
+      );
+      if (existing) {
+        switchTab(existing.id);
+      } else {
+        createMermaidTab(`Diagram (${currentTab?.name || 'doc'})`, src, currentTab?.id, idx);
+      }
+    });
     if (window.mermaid) mermaid.init(undefined, el);
   });
   if (isWysiwyg()) previewEl.contentEditable = 'true';
@@ -773,6 +866,46 @@ themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
 })();
 
 // ── Public API ─────────────────────────────────────────────────────────
-window.SD = { editor: editorEl, schedulePreview, isWysiwyg };
+window.SD = {
+  editor: editorEl,
+  schedulePreview,
+  isWysiwyg,
+  insertMermaid(src, sourceTabId, sourceMdId) {
+    if (!sourceTabId) {
+      // No source tab — insert into active markdown tab or create one
+      const mdTab = tabs.find(t => t.type !== 'mermaid' && t.id === activeId)
+        || tabs.find(t => t.type !== 'mermaid');
+      if (!mdTab) { showMsg('No markdown tab to insert into', true); return; }
+      switchTab(mdTab.id);
+      const block = `\n\`\`\`mermaid\n${src}\n\`\`\`\n`;
+      const pos   = editorEl.selectionStart;
+      editorEl.value = editorEl.value.substring(0, pos) + block + editorEl.value.substring(pos);
+      markDirty(); schedulePreview(); showMsg('Diagram inserted');
+      return;
+    }
+    const mdTab = tabs.find(t => t.id === sourceTabId);
+    if (!mdTab) { showMsg('Source tab not found', true); return; }
+    // Replace the nth mermaid block in the source tab's content
+    let count = -1;
+    const updated = mdTab.content.replace(
+      /```mermaid\n([\s\S]*?)```/g,
+      (match) => {
+        count++;
+        return count === sourceMdId
+          ? `\`\`\`mermaid\n${src}\n\`\`\``
+          : match;
+      }
+    );
+    mdTab.content = updated;
+    mdTab.isDirty = true;
+    // If source tab is active, update editor
+    if (activeId === sourceTabId) {
+      editorEl.value = updated;
+      schedulePreview();
+    }
+    showMsg('Diagram updated in source tab');
+    renderTabs();
+  },
+};
 
 })();
