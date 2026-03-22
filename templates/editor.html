@@ -88,12 +88,11 @@
     <button class="tb-btn" data-action="hr"         title="Horizontal rule">─ HR</button>
     <span class="tb-sep" role="separator"></span>
     <button id="btn-line-nums" class="tb-btn" title="Toggle line numbers" aria-pressed="false">¶ Lines</button>
+    <button id="btn-filter" class="tb-btn tb-btn--accent" title="Toggle line filter" aria-pressed="false" aria-expanded="false">⊟ Filter</button>
     <button id="btn-transform" class="tb-btn tb-btn--accent" title="Text transformations" aria-expanded="false" aria-controls="transform-panel">⚙ Transform</button>
   </div>
 
   <main id="workspace" class="view-split">
-
-    <!-- Empty state shown when no tabs open -->
     <div id="empty-state" hidden>
       <img src="/static/images/sharkdrown_banner.png" alt="SharkDrown" id="banner-img" />
       <p id="empty-hint">Open a file or create a new one to get started</p>
@@ -103,6 +102,23 @@
     <div id="mermaid-pane" aria-label="Mermaid diagram editor"></div>
 
     <div id="pane-code" role="region" aria-label="Markdown source editor">
+
+      <!-- Filter bar lives inside pane-code so it doesn't affect the grid -->
+      <div id="filter-bar" aria-label="Line filter" aria-hidden="true">
+        <div id="filter-bar-inner">
+          <div id="filter-rows"></div>
+          <div id="filter-controls">
+            <button id="filter-add" class="fb-btn" title="Add filter row">＋</button>
+            <div id="filter-logic-wrap">
+              <button class="fb-logic active" data-logic="and" aria-pressed="true">AND</button>
+              <button class="fb-logic"        data-logic="or"  aria-pressed="false">OR</button>
+            </div>
+            <span id="filter-status" aria-live="polite"></span>
+            <button id="filter-clear" class="fb-btn fb-btn--danger" title="Clear filter and restore editor">✕ Clear</button>
+          </div>
+        </div>
+      </div>
+
       <div id="editor-wrap">
         <div id="line-numbers" aria-hidden="true"></div>
         <textarea
@@ -150,6 +166,7 @@
     <button class="tp-tab"        role="tab" data-tab="fields"     aria-selected="false" aria-controls="tp-fields">Fields</button>
     <button class="tp-tab"        role="tab" data-tab="whitespace" aria-selected="false" aria-controls="tp-whitespace">Whitespace</button>
     <button class="tp-tab"        role="tab" data-tab="ctrlchars"  aria-selected="false" aria-controls="tp-ctrlchars">Ctrl Chars</button>
+    <button class="tp-tab"        role="tab" data-tab="lines"      aria-selected="false" aria-controls="tp-lines">Lines</button>
   </nav>
   <div id="tp-prefix" class="tp-pane" role="tabpanel">
     <section class="tp-section">
@@ -222,6 +239,46 @@
       <div id="cc-report" class="tp-info" style="margin-top:8px;white-space:pre-wrap;font-size:11px" aria-live="polite"></div>
     </section>
   </div>
+
+  <div id="tp-lines" class="tp-pane tp-pane--hidden" role="tabpanel">
+    <section class="tp-section">
+      <h3 class="tp-section-title">Sort</h3>
+      <div class="tp-row tp-row--actions">
+        <label class="tp-check-label"><input type="checkbox" id="ln-sort-case" /> Case sensitive</label>
+      </div>
+      <div class="tp-row tp-row--actions">
+        <label class="tp-check-label"><input type="checkbox" id="ln-sort-blank-last" checked /> Blank lines last</label>
+      </div>
+      <div class="tp-row tp-row--actions">
+        <button class="tp-apply" id="btn-ln-sort-alpha-asc">A→Z</button>
+        <button class="tp-apply" id="btn-ln-sort-alpha-desc">Z→A</button>
+        <button class="tp-apply" id="btn-ln-sort-num-asc">1→9</button>
+        <button class="tp-apply" id="btn-ln-sort-num-desc">9→1</button>
+      </div>
+    </section>
+    <section class="tp-section">
+      <h3 class="tp-section-title">Duplicates</h3>
+      <button class="tp-apply tp-apply--full" id="btn-ln-dedup">Remove duplicate lines</button>
+      <button class="tp-apply tp-apply--full" id="btn-ln-keep-dupes">Keep only duplicated lines</button>
+      <p class="tp-hint">Keep only duplicated: removes unique lines, keeps one instance of each line that appeared more than once.</p>
+    </section>
+    <section class="tp-section">
+      <h3 class="tp-section-title">Filter</h3>
+      <div class="tp-row">
+        <label class="tp-label" for="ln-filter-str">String</label>
+        <input class="tp-input" id="ln-filter-str" type="text" placeholder="string or /regex/" />
+      </div>
+      <div class="tp-row tp-row--actions">
+        <label class="tp-check-label"><input type="checkbox" id="ln-filter-case" /> Case sensitive</label>
+      </div>
+      <div class="tp-row tp-row--actions">
+        <button class="tp-apply" id="btn-ln-keep-containing">Keep containing</button>
+        <button class="tp-apply" id="btn-ln-remove-containing">Remove containing</button>
+      </div>
+      <div id="ln-filter-error" class="tp-error" role="alert" aria-live="assertive"></div>
+      <div id="ln-filter-info"  class="tp-info"  aria-live="polite"></div>
+    </section>
+  </div>
 </aside>
 
 <script src="https://cdn.jsdelivr.net/npm/turndown@7.2.0/dist/turndown.js"></script>
@@ -231,6 +288,7 @@
 <script>mermaid.initialize({ startOnLoad: false, theme: 'neutral' });</script>
 <script src="/static/js/mermaid_editor.js"></script>
 <script src="/static/js/editor.js"></script>
+<script src="/static/js/filter.js"></script>
 <script src="/static/js/transform.js"></script>
 </body>
 </html>

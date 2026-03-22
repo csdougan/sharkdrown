@@ -276,6 +276,9 @@ function switchTab(id) {
   const tab = activeTab();
   if (!tab) return;
 
+  // Reset filter when switching tabs — it holds stale saved content
+  window.SD_filter?.reset();
+
   if (tab.type === 'mermaid') {
     // Override the grid so the mermaid pane fills the full workspace
     workspace.style.gridTemplateColumns = '';
@@ -580,12 +583,14 @@ function scheduleHighlight() {
 
 function applyHighlight() {
   if (!window.hljs) return;
+  if (!hljs.getLanguage('markdown')) return;
   const overlay = ensureOverlay();
   const code    = overlay.querySelector('code');
-  code.textContent = editorEl.value;
-  hljs.highlightElement(code);
+  // Use hljs.highlight() rather than highlightElement() — avoids the
+  // data-highlighted deduplication that causes the second call to no-op
+  const result  = hljs.highlight(editorEl.value, { language: 'markdown' });
+  code.innerHTML = result.value;
   editorWrap.classList.add('hljs-active');
-  // Sync scroll
   overlay.scrollTop  = editorEl.scrollTop;
   overlay.scrollLeft = editorEl.scrollLeft;
 }
@@ -617,6 +622,19 @@ editorEl.addEventListener('input', () => {
 
 editorEl.addEventListener('keyup',   updateCursor);
 editorEl.addEventListener('click',   updateCursor);
+
+editorEl.addEventListener('filter-applied', () => {
+  schedulePreview();
+  scheduleHighlight();
+});
+
+editorEl.addEventListener('filter-cleared', () => {
+  schedulePreview();
+  scheduleHighlight();
+  updateStats();
+  updateCursor();
+});
+
 editorEl.addEventListener('keydown', e => {
   updateCursor();
   if (e.key === 'Tab') {
@@ -863,6 +881,8 @@ themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
 
   updateStatusFile(); updateStats(); updateCursor();
   if (tab) { schedulePreview(); scheduleHighlight(); updateLineNumbers(); }
+  // Retry highlight after CDN scripts settle
+  setTimeout(scheduleHighlight, 1500);
 })();
 
 // ── Public API ─────────────────────────────────────────────────────────

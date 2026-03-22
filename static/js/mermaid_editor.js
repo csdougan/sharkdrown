@@ -279,52 +279,27 @@ function nodeAtPoint(pt) {
 }
 
 function onCanvasClick(e) {
-  console.log('[ME] click - suppressNextClick:', suppressNextClick, 'connecting:', JSON.stringify(state.connecting), 'target:', e.target.className?.baseVal || e.target.className);
-  if (suppressNextClick) { suppressNextClick = false; console.log('[ME] suppressed'); return; }
   const nodeEl = e.target.closest('.me-node');
 
-  // Complete a pending connection — triggered by clicking any part of the target node
-  // including its ports
-  if (state.connecting) {
-    if (nodeEl) {
-      const toId = nodeEl.dataset.nodeId;
-      if (toId !== state.connecting.fromId) {
-        const dt    = DIAGRAM_TYPES[state.diagramType];
-        const etype = dt.edgeTypes.find(et => et.id === state.edgeType) || dt.edgeTypes[0];
-        state.edges.push({
-          id:       `E${state.nextId++}`,
-          from:     state.connecting.fromId,
-          to:       toId,
-          label:    '',
-          edgeType: state.edgeType,
-          syntax:   etype.syntax,
-        });
-        updateSource();
-        setStatus('Connected');
-      } else {
-        setStatus('Cannot connect a node to itself');
-      }
-    } else {
-      setStatus('Connection cancelled');
-    }
+  // Cancel connection on background click
+  if (state.connecting && !nodeEl) {
     state.connecting = null;
     svgEl.style.cursor = '';
-    render();
+    setStatus('Connection cancelled');
     return;
   }
 
-  // Port clicks outside connecting mode start a connection (same as port mousedown)
-  if (e.target.classList.contains('me-port')) {
+  // Port click outside connecting mode — start a connection
+  if (!state.connecting && e.target.classList.contains('me-port')) {
     const fromNodeEl = e.target.closest('.me-node');
     if (fromNodeEl) {
       state.connecting = { fromId: fromNodeEl.dataset.nodeId };
       svgEl.style.cursor = 'crosshair';
-      setStatus('Click another node to connect — Escape to cancel');
+      setStatus('Release mouse over another node to connect — Escape to cancel');
     }
     return;
   }
 
-  // Place a new node on background click
   if (nodeEl) return;
   if (!state.pendingShape) return;
 
@@ -351,7 +326,6 @@ function onCanvasClick(e) {
 }
 
 let dragState = null;
-let suppressNextClick = false;
 
 function onCanvasMouseDown(e) {
   if (e.target.classList.contains('me-port')) return; // port has its own handler
@@ -378,10 +352,48 @@ function onCanvasMouseDown(e) {
 }
 
 function onCanvasMouseMove(e) {
+  // Draw the temporary connection line when connecting
+  if (state.connecting) {
+    const pt       = getSVGPoint(e);
+    const fromNode = state.nodes.find(n => n.id === state.connecting.fromId);
+    if (!fromNode) return;
+
+    const fx = fromNode.x + fromNode.w / 2;
+    const fy = fromNode.y + fromNode.h / 2;
+
+    // Check if hovering a valid target node
+    const nodeEl  = e.target.closest('.me-node');
+    const isValid = nodeEl && nodeEl.dataset.nodeId !== state.connecting.fromId;
+    const colour  = isValid ? '#00d4a0' : '#ff8c00'; // green = valid, orange = dragging
+
+    let line = canvasG.querySelector('#me-connect-line');
+    if (!line) {
+      line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.id = 'me-connect-line';
+      line.setAttribute('pointer-events', 'none');
+      line.setAttribute('stroke-width', '2');
+      line.setAttribute('stroke-dasharray', '6 3');
+      canvasG.appendChild(line);
+    }
+    const targetNode = isValid
+      ? state.nodes.find(n => n.id === nodeEl.dataset.nodeId)
+      : null;
+
+    line.setAttribute('x1', fx);
+    line.setAttribute('y1', fy);
+    line.setAttribute('x2', targetNode ? targetNode.x + targetNode.w / 2 : pt.x);
+    line.setAttribute('y2', targetNode ? targetNode.y + targetNode.h / 2 : pt.y);
+    line.setAttribute('stroke', colour);
+    return;
+  }
+
+  // Remove connect line if not connecting
+  canvasG.querySelector('#me-connect-line')?.remove();
+
   if (!dragState) return;
-  const pt    = getSVGPoint(e);
-  const dx    = pt.x - dragState.startX;
-  const dy    = pt.y - dragState.startY;
+  const pt = getSVGPoint(e);
+  const dx = pt.x - dragState.startX;
+  const dy = pt.y - dragState.startY;
   dragState.moved = true;
 
   Object.entries(dragState.origPositions).forEach(([id, orig]) => {
@@ -392,6 +404,37 @@ function onCanvasMouseMove(e) {
 }
 
 function onCanvasMouseUp(e) {
+  // Complete a pending connection — fires on whatever node the mouse is released over
+  if (state.connecting) {
+    canvasG.querySelector('#me-connect-line')?.remove();
+    const nodeEl = e.target.closest('.me-node');
+    if (nodeEl) {
+      const toId = nodeEl.dataset.nodeId;
+      if (toId !== state.connecting.fromId) {
+        const dt    = DIAGRAM_TYPES[state.diagramType];
+        const etype = dt.edgeTypes.find(et => et.id === state.edgeType) || dt.edgeTypes[0];
+        state.edges.push({
+          id:       `E${state.nextId++}`,
+          from:     state.connecting.fromId,
+          to:       toId,
+          label:    '',
+          edgeType: state.edgeType,
+          syntax:   etype.syntax,
+        });
+        updateSource();
+        setStatus('Connected');
+      } else {
+        setStatus('Cannot connect a node to itself');
+      }
+    } else {
+      setStatus('Ready');
+    }
+    state.connecting = null;
+    svgEl.style.cursor = '';
+    render();
+    return;
+  }
+
   if (dragState) {
     if (!dragState.moved) {
       const multi = e.metaKey || e.ctrlKey;
@@ -406,6 +449,7 @@ function onCanvasMouseUp(e) {
 
 function onCanvasKey(e) {
   if (e.key === 'Escape' && state.connecting) {
+    canvasG.querySelector('#me-connect-line')?.remove();
     state.connecting = null;
     svgEl.style.cursor = '';
     setStatus('Connection cancelled');
@@ -425,6 +469,7 @@ function selectNode(id, multi) {
   if (!multi) state.selected.clear();
   if (state.selected.has(id)) state.selected.delete(id);
   else state.selected.add(id);
+  svgEl.focus();
   render();
 }
 
@@ -587,10 +632,8 @@ function drawNode(node) {
     port.addEventListener('mousedown', e => {
       e.stopPropagation();
       state.connecting = { fromId: node.id };
-      suppressNextClick = true;
       svgEl.style.cursor = 'crosshair';
-      console.log('[ME] port mousedown - set connecting to:', node.id, 'suppressNextClick:', suppressNextClick);
-      setStatus('Click another node to connect — Escape to cancel');
+      setStatus('Release mouse over another node to connect — Escape to cancel');
     });
     g.appendChild(port);
   });
@@ -836,55 +879,111 @@ function insertIntoMarkdown() {
   }
 }
 
-function exportSVG() {
-  const src    = buildExportSVG();
-  const blob   = new Blob([src], { type: 'image/svg+xml' });
-  const url    = URL.createObjectURL(blob);
-  const a      = document.createElement('a');
-  a.href = url; a.download = 'diagram.svg'; a.click();
-  URL.revokeObjectURL(url);
-}
-
-function buildExportSVG() {
-  // Clone the canvas SVG with inline styles
+function buildExportSVG(pad = 20) {
+  // Use getBBox on the canvas group for a tight fit around actual content
   const clone = svgEl.cloneNode(true);
   clone.removeAttribute('tabindex');
-  const bbox  = canvasG.getBBox();
-  const pad   = 20;
-  clone.setAttribute('viewBox',
-    `${bbox.x - pad} ${bbox.y - pad} ${bbox.width + pad*2} ${bbox.height + pad*2}`);
-  clone.setAttribute('width',  bbox.width  + pad * 2);
-  clone.setAttribute('height', bbox.height + pad * 2);
-  // Embed basic styles
+
+  // Remove the connect line and grid bg from export
+  clone.querySelector('#me-connect-line')?.remove();
+  clone.querySelector('#me-grid-bg')?.remove();
+
+  // Calculate tight bounding box from node positions
+  if (state.nodes.length === 0) {
+    clone.setAttribute('viewBox', `0 0 400 200`);
+    clone.setAttribute('width', '400');
+    clone.setAttribute('height', '200');
+  } else {
+    const minX = Math.min(...state.nodes.map(n => n.x)) - pad;
+    const minY = Math.min(...state.nodes.map(n => n.y)) - pad;
+    const maxX = Math.max(...state.nodes.map(n => n.x + n.w)) + pad;
+    const maxY = Math.max(...state.nodes.map(n => n.y + n.h)) + pad;
+    const w = maxX - minX;
+    const h = maxY - minY;
+    clone.setAttribute('viewBox', `${minX} ${minY} ${w} ${h}`);
+    clone.setAttribute('width',  w);
+    clone.setAttribute('height', h);
+  }
+
   const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
   style.textContent = `
-    .me-shape { fill:#1f1f22; stroke:#00d4a0; stroke-width:1.5; }
-    .me-node-label { fill:#e8e8ec; font-family:monospace; font-size:13px; }
+    .me-shape { fill:#1f1f22; stroke:#0099ff; stroke-width:1.5; }
+    .me-shape.selected { fill:#2a2a2e; stroke:#00d4a0; }
+    .me-node-label { fill:#e8e8ec; font-family:monospace; font-size:12px; }
     .me-edge { fill:none; stroke:#0099ff; stroke-width:1.5; }
+    .me-edge.dotted { stroke-dasharray:5 3; }
+    .me-edge.thick { stroke-width:3; }
     .me-edge-label { fill:#a8a8b0; font-family:monospace; font-size:11px; }
+    .me-port { display:none; }
   `;
   clone.insertBefore(style, clone.firstChild);
   return new XMLSerializer().serializeToString(clone);
 }
 
-function exportPNG() {
+async function exportSVG() {
   const svgSrc = buildExportSVG();
-  const img    = new Image();
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'diagram.svg',
+        types: [{ description: 'SVG Image', accept: { 'image/svg+xml': ['.svg'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(svgSrc);
+      await writable.close();
+      setStatus('SVG saved');
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  // Fallback
+  const blob = new Blob([svgSrc], { type: 'image/svg+xml' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'diagram.svg'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportPNG() {
+  const svgSrc = buildExportSVG();
   const blob   = new Blob([svgSrc], { type: 'image/svg+xml' });
   const url    = URL.createObjectURL(blob);
-  img.onload   = () => {
-    const canvas    = document.createElement('canvas');
-    canvas.width    = img.width  || 800;
-    canvas.height   = img.height || 600;
-    const ctx       = canvas.getContext('2d');
-    ctx.fillStyle   = '#0e0e0f';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const img  = new Image();
+  img.onload = async () => {
+    const scale  = 2; // retina
+    const canvas = document.createElement('canvas');
+    canvas.width  = img.width  * scale;
+    canvas.height = img.height * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+    ctx.fillStyle = '#0e0e0f';
+    ctx.fillRect(0, 0, img.width, img.height);
     ctx.drawImage(img, 0, 0);
     URL.revokeObjectURL(url);
-    const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
-    a.download = 'diagram.png';
-    a.click();
+
+    canvas.toBlob(async pngBlob => {
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: 'diagram.png',
+            types: [{ description: 'PNG Image', accept: { 'image/png': ['.png'] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(pngBlob);
+          await writable.close();
+          setStatus('PNG saved');
+          return;
+        } catch (e) {
+          if (e.name === 'AbortError') return;
+        }
+      }
+      // Fallback
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(pngBlob);
+      a.download = 'diagram.png'; a.click();
+    }, 'image/png');
   };
   img.src = url;
 }

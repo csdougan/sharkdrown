@@ -283,4 +283,110 @@ document.getElementById('btn-cc-remove').addEventListener('click', () => {
   ccReport.textContent = `Removed ${total} character${total !== 1 ? 's' : ''}.`;
 });
 
+// ── Lines ──────────────────────────────────────────────────────────────
+function getLines(text) { return text.split('\n'); }
+function joinLines(lines) { return lines.join('\n'); }
+
+function sortOp(dir, numeric) {
+  const caseSensitive = document.getElementById('ln-sort-case').checked;
+  const blankLast     = document.getElementById('ln-sort-blank-last').checked;
+  const target = getTarget();
+  const lines  = getLines(target.text);
+
+  lines.sort((a, b) => {
+    const aBlank = a.trim() === '';
+    const bBlank = b.trim() === '';
+    if (blankLast) {
+      if (aBlank && !bBlank) return 1;
+      if (!aBlank && bBlank) return -1;
+      if (aBlank && bBlank) return 0;
+    }
+    let cmp;
+    if (numeric) {
+      const na = parseFloat(a);
+      const nb = parseFloat(b);
+      const aNum = !isNaN(na);
+      const bNum = !isNaN(nb);
+      if (aNum && bNum) { cmp = na - nb; }
+      else if (aNum)    { cmp = -1; }
+      else if (bNum)    { cmp = 1; }
+      else              { cmp = (caseSensitive ? a : a.toLowerCase()).localeCompare(caseSensitive ? b : b.toLowerCase()); }
+    } else {
+      const ca = caseSensitive ? a : a.toLowerCase();
+      const cb = caseSensitive ? b : b.toLowerCase();
+      cmp = ca.localeCompare(cb);
+    }
+    return dir === 'asc' ? cmp : -cmp;
+  });
+
+  applyResult(joinLines(lines), target);
+}
+
+document.getElementById('btn-ln-sort-alpha-asc').addEventListener('click',  () => sortOp('asc',  false));
+document.getElementById('btn-ln-sort-alpha-desc').addEventListener('click', () => sortOp('desc', false));
+document.getElementById('btn-ln-sort-num-asc').addEventListener('click',    () => sortOp('asc',  true));
+document.getElementById('btn-ln-sort-num-desc').addEventListener('click',   () => sortOp('desc', true));
+
+document.getElementById('btn-ln-dedup').addEventListener('click', () => {
+  const target = getTarget();
+  const seen   = new Set();
+  const result = getLines(target.text).filter(line => {
+    if (seen.has(line)) return false;
+    seen.add(line);
+    return true;
+  });
+  applyResult(joinLines(result), target);
+});
+
+document.getElementById('btn-ln-keep-dupes').addEventListener('click', () => {
+  const target = getTarget();
+  const lines  = getLines(target.text);
+  const counts = new Map();
+  lines.forEach(l => counts.set(l, (counts.get(l) || 0) + 1));
+  const seen   = new Set();
+  const result = lines.filter(line => {
+    if (counts.get(line) > 1 && !seen.has(line)) {
+      seen.add(line);
+      return true;
+    }
+    return false;
+  });
+  applyResult(joinLines(result), target);
+});
+
+function buildFilterRegex(raw, caseSensitive) {
+  const errEl = document.getElementById('ln-filter-error');
+  errEl.textContent = '';
+  const reMatch = raw.match(/^\/(.+)\/([gimsuy]*)$/);
+  if (reMatch) {
+    try {
+      const flags = reMatch[2].includes('i') || !caseSensitive ? reMatch[2] : reMatch[2];
+      return new RegExp(reMatch[1], caseSensitive ? flags.replace('i','') : flags + (flags.includes('i') ? '' : 'i'));
+    } catch (e) {
+      errEl.textContent = `Regex error: ${e.message}`;
+      return null;
+    }
+  }
+  const flags = caseSensitive ? '' : 'i';
+  return new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+}
+
+function filterLines(keep) {
+  const raw  = document.getElementById('ln-filter-str').value;
+  const cs   = document.getElementById('ln-filter-case').checked;
+  const info = document.getElementById('ln-filter-info');
+  info.textContent = '';
+  if (!raw) return;
+  const re = buildFilterRegex(raw, cs);
+  if (!re) return;
+  const target = getTarget();
+  const lines  = getLines(target.text);
+  const result = lines.filter(l => keep ? re.test(l) : !re.test(l));
+  info.textContent = `${lines.length - result.length} line${lines.length - result.length !== 1 ? 's' : ''} removed`;
+  applyResult(joinLines(result), target);
+}
+
+document.getElementById('btn-ln-keep-containing').addEventListener('click',   () => filterLines(true));
+document.getElementById('btn-ln-remove-containing').addEventListener('click', () => filterLines(false));
+
 })();
