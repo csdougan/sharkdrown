@@ -1,0 +1,4 @@
+flask>=3.0
+markdown>=3.6
+pymdown-extensions>=10.7
+pygments>=2.18
