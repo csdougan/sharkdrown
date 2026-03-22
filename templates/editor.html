@@ -1,17 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SharkDrown</title>
+  <link rel="icon" href="/static/images/favicon.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link id="preview-font-link" href="" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/editor.css" />
 </head>
 <body>
 
-<!-- ── App grid (topbar / toolbar / workspace / statusbar) ──────────── -->
 <div id="app">
 
   <header id="topbar" role="banner">
@@ -40,8 +41,31 @@
         <button class="view-btn"        data-view="code"    aria-pressed="false" title="Code only">⌨ Code</button>
         <button class="view-btn"        data-view="wysiwyg" aria-pressed="false" title="Document view">☰ View</button>
       </div>
+
+      <select id="font-select" aria-label="Preview font">
+        <option value="Lora"           data-url="Lora:wght@400;700">Lora</option>
+        <option value="Merriweather"   data-url="Merriweather:wght@400;700">Merriweather</option>
+        <option value="Source Sans 3"  data-url="Source+Sans+3:wght@400;600">Source Sans</option>
+        <option value="Inter"          data-url="Inter:wght@400;600">Inter</option>
+        <option value="Fira Sans"      data-url="Fira+Sans:wght@400;600">Fira Sans</option>
+        <option value="IBM Plex Serif" data-url="IBM+Plex+Serif:wght@400;700">IBM Plex Serif</option>
+        <option value="Nunito"         data-url="Nunito:wght@400;700">Nunito</option>
+        <option value="PT Serif"       data-url="PT+Serif:wght@400;700">PT Serif</option>
+      </select>
+
+      <select id="theme-select" aria-label="Theme">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+        <option value="hc">High Contrast</option>
+        <option value="warm">Warm</option>
+      </select>
     </div>
   </header>
+
+  <!-- File tabs -->
+  <div id="tab-bar" role="tablist" aria-label="Open files">
+    <!-- tabs injected by JS -->
+  </div>
 
   <div id="md-toolbar" role="toolbar" aria-label="Markdown formatting">
     <button class="tb-btn" data-action="bold"       title="Bold">      <b>B</b></button>
@@ -98,7 +122,6 @@
 
 </div><!-- /#app -->
 
-<!-- ── Transform panel — outside #app so position:fixed is not clipped ── -->
 <aside id="transform-panel" role="complementary" aria-label="Text transformations">
 
   <div id="tp-header">
@@ -118,7 +141,6 @@
     <button class="tp-tab"        role="tab" data-tab="ctrlchars"  aria-selected="false" aria-controls="tp-ctrlchars">Ctrl Chars</button>
   </nav>
 
-  <!-- Prefix / Suffix -->
   <div id="tp-prefix" class="tp-pane" role="tabpanel">
     <section class="tp-section">
       <h3 class="tp-section-title">Add to lines</h3>
@@ -152,7 +174,6 @@
     </section>
   </div>
 
-  <!-- Find / Replace -->
   <div id="tp-replace" class="tp-pane tp-pane--hidden" role="tabpanel">
     <section class="tp-section">
       <div class="tp-row">
@@ -173,7 +194,6 @@
     </section>
   </div>
 
-  <!-- Fields -->
   <div id="tp-fields" class="tp-pane tp-pane--hidden" role="tabpanel">
     <section class="tp-section">
       <div class="tp-row">
@@ -201,7 +221,6 @@
     </section>
   </div>
 
-  <!-- Whitespace -->
   <div id="tp-whitespace" class="tp-pane tp-pane--hidden" role="tabpanel">
     <section class="tp-section">
       <button class="tp-apply tp-apply--full" id="btn-ws-ltrim">Strip leading whitespace</button>
@@ -213,7 +232,6 @@
     </section>
   </div>
 
-  <!-- Control Characters -->
   <div id="tp-ctrlchars" class="tp-pane tp-pane--hidden" role="tabpanel">
     <section class="tp-section">
       <button class="tp-apply tp-apply--full" id="btn-cc-show">Show control characters</button>

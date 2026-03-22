@@ -2,71 +2,83 @@
 
 (function () {
 
-// ── State ──────────────────────────────────────────────────────────────
-const state = {
-  currentFile:     null,
-  fileHandle:      null,
-  isDirty:         false,
-  flavor:          'standard',
-  view:            'split',
-  previewDebounce: null,
-  wysiwygDebounce: null,
+// ── Constants ──────────────────────────────────────────────────────────
+const LS = {
+  TABS:       'sd_tabs',
+  ACTIVE_TAB: 'sd_active_tab',
+  THEME:      'sd_theme',
+  FONT:       'sd_font',
+  SPLIT:      'sd_split',
+  VIEW:       'sd_view',
+  FLAVOR:     'sd_flavor',
 };
 
+// ── Tab state ──────────────────────────────────────────────────────────
+// Each tab: { id, name, content, isDirty, fileHandle, scrollTop }
+let tabs      = [];
+let activeId  = null;
+let tabSeq    = 0;
+
+function newTabId() { return `tab_${++tabSeq}`; }
+
+function activeTab() { return tabs.find(t => t.id === activeId) || null; }
+
 // ── DOM refs ───────────────────────────────────────────────────────────
-const editor      = document.getElementById('editor');
+const editorEl    = document.getElementById('editor');
+const tabBarEl    = document.getElementById('tab-bar');
 const statusFile  = document.getElementById('status-file');
 const statusWords = document.getElementById('status-words');
 const statusLines = document.getElementById('status-lines');
 const statusMsg   = document.getElementById('status-msg');
 const workspace   = document.getElementById('workspace');
 const previewEl   = document.getElementById('preview-content');
+const fontSelect  = document.getElementById('font-select');
+const themeSelect = document.getElementById('theme-select');
+const fontLink    = document.getElementById('preview-font-link');
 
-// ── Turndown (HTML → Markdown) ─────────────────────────────────────────
-const turndown = new TurndownService({
-  headingStyle:   'atx',
-  bulletListMarker: '-',
-  codeBlockStyle: 'fenced',
-  fence:          '```',
-  emDelimiter:    '*',
-  strongDelimiter: '**',
-});
+// ── App-level state (not per-tab) ──────────────────────────────────────
+const appState = {
+  view:            'split',
+  flavor:          'standard',
+  previewDebounce: null,
+  wysiwygDebounce: null,
+};
 
-// Preserve mermaid blocks as fenced code
-turndown.addRule('mermaid', {
-  filter: node => node.classList && node.classList.contains('mermaid'),
-  replacement: (content, node) => {
-    const src = node.dataset.src || node.textContent;
-    return `\n\`\`\`mermaid\n${src.trim()}\n\`\`\`\n`;
-  },
-});
+// ── Persistence helpers ────────────────────────────────────────────────
+function persist() {
+  const serialisable = tabs.map(t => ({
+    id:        t.id,
+    name:      t.name,
+    content:   t.content,
+    isDirty:   t.isDirty,
+    scrollTop: t.scrollTop,
+  }));
+  try {
+    localStorage.setItem(LS.TABS,       JSON.stringify(serialisable));
+    localStorage.setItem(LS.ACTIVE_TAB, activeId || '');
+    localStorage.setItem(LS.VIEW,       appState.view);
+    localStorage.setItem(LS.FLAVOR,     appState.flavor);
+  } catch (_) {}
+}
 
-// Preserve generic fenced code blocks
-turndown.addRule('fencedCode', {
-  filter: node => node.nodeName === 'PRE' && node.querySelector('code'),
-  replacement: (content, node) => {
-    const code = node.querySelector('code');
-    const lang = (code.className.match(/language-(\S+)/) || [])[1] || '';
-    return `\n\`\`\`${lang}\n${code.textContent}\n\`\`\`\n`;
-  },
-});
-
-// Task list items
-turndown.addRule('taskListItem', {
-  filter: node => {
-    return node.nodeName === 'LI' &&
-      node.querySelector('input[type="checkbox"]');
-  },
-  replacement: (content, node) => {
-    const cb = node.querySelector('input[type="checkbox"]');
-    const checked = cb.checked ? 'x' : ' ';
-    const text = content.replace(/^\s*\[.\]\s*/, '').trim();
-    return `- [${checked}] ${text}\n`;
-  },
-});
-
-function htmlToMarkdown(html) {
-  return turndown.turndown(html);
+function restore() {
+  try {
+    const raw = localStorage.getItem(LS.TABS);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (Array.isArray(saved) && saved.length) {
+        tabs = saved.map(t => ({ ...t, fileHandle: null }));
+        tabSeq = tabs.reduce((m, t) => {
+          const n = parseInt(t.id.replace('tab_', '')) || 0;
+          return Math.max(m, n);
+        }, 0);
+        activeId = localStorage.getItem(LS.ACTIVE_TAB) || tabs[0].id;
+        if (!tabs.find(t => t.id === activeId)) activeId = tabs[0].id;
+        return true;
+      }
+    }
+  } catch (_) {}
+  return false;
 }
 
 // ── Utility ────────────────────────────────────────────────────────────
@@ -78,27 +90,138 @@ function showMsg(msg, isError = false) {
 }
 
 function updateStats() {
-  const text = editor.value;
+  const text  = editorEl.value;
   const words = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
   const lines = text === '' ? 0 : text.split('\n').length;
   statusWords.textContent = `${words} word${words !== 1 ? 's' : ''}`;
   statusLines.textContent = `${lines} line${lines !== 1 ? 's' : ''}`;
 }
 
-function markDirty() {
-  if (!state.isDirty) {
-    state.isDirty = true;
-    statusFile.textContent = (state.currentFile || 'Untitled') + ' •';
+function isWysiwyg() { return appState.view === 'wysiwyg'; }
+
+// ── Turndown ───────────────────────────────────────────────────────────
+const turndown = new TurndownService({
+  headingStyle: 'atx', bulletListMarker: '-', codeBlockStyle: 'fenced',
+  fence: '```', emDelimiter: '*', strongDelimiter: '**',
+});
+turndown.addRule('mermaid', {
+  filter: node => node.classList && node.classList.contains('mermaid'),
+  replacement: (_, node) => `\n\`\`\`mermaid\n${(node.dataset.src || node.textContent).trim()}\n\`\`\`\n`,
+});
+turndown.addRule('fencedCode', {
+  filter: node => node.nodeName === 'PRE' && node.querySelector('code'),
+  replacement: (_, node) => {
+    const code = node.querySelector('code');
+    const lang = (code.className.match(/language-(\S+)/) || [])[1] || '';
+    return `\n\`\`\`${lang}\n${code.textContent}\n\`\`\`\n`;
+  },
+});
+turndown.addRule('taskListItem', {
+  filter: node => node.nodeName === 'LI' && node.querySelector('input[type="checkbox"]'),
+  replacement: (content, node) => {
+    const checked = node.querySelector('input[type="checkbox"]').checked ? 'x' : ' ';
+    return `- [${checked}] ${content.replace(/^\s*\[.\]\s*/, '').trim()}\n`;
+  },
+});
+
+// ── Tab rendering ──────────────────────────────────────────────────────
+function renderTabs() {
+  tabBarEl.innerHTML = '';
+  tabs.forEach(tab => {
+    const el = document.createElement('button');
+    el.className  = 'file-tab' + (tab.id === activeId ? ' active' : '') + (tab.isDirty ? ' dirty' : '');
+    el.role       = 'tab';
+    el.setAttribute('aria-selected', tab.id === activeId);
+    el.setAttribute('data-tab-id', tab.id);
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className   = 'tab-name';
+    nameSpan.textContent = tab.name;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className        = 'tab-close';
+    closeBtn.textContent      = '×';
+    closeBtn.setAttribute('aria-label', `Close ${tab.name}`);
+    closeBtn.addEventListener('click', e => { e.stopPropagation(); closeTab(tab.id); });
+
+    el.appendChild(nameSpan);
+    el.appendChild(closeBtn);
+    el.addEventListener('click', () => switchTab(tab.id));
+    tabBarEl.appendChild(el);
+  });
+}
+
+// ── Tab operations ─────────────────────────────────────────────────────
+function switchTab(id) {
+  const prev = activeTab();
+  if (prev) {
+    prev.content   = editorEl.value;
+    prev.scrollTop = editorEl.scrollTop;
   }
+  activeId = id;
+  const tab = activeTab();
+  if (!tab) return;
+  editorEl.value    = tab.content;
+  editorEl.scrollTop = tab.scrollTop || 0;
+  renderTabs();
+  updateStatusFile();
+  updateStats();
+  schedulePreview();
+  persist();
+}
+
+function createTab(name, content = '', fileHandle = null) {
+  const tab = { id: newTabId(), name, content, isDirty: false, fileHandle, scrollTop: 0 };
+  tabs.push(tab);
+  switchTab(tab.id);
+  return tab;
+}
+
+function closeTab(id) {
+  const tab = tabs.find(t => t.id === id);
+  if (!tab) return;
+  if (tab.isDirty) {
+    if (!confirm(`"${tab.name}" has unsaved changes. Close anyway?`)) return;
+  }
+  const idx = tabs.indexOf(tab);
+  tabs.splice(idx, 1);
+  if (tabs.length === 0) {
+    createTab('Untitled.md', '');
+    return;
+  }
+  if (activeId === id) {
+    activeId = tabs[Math.min(idx, tabs.length - 1)].id;
+    const next = activeTab();
+    editorEl.value = next.content;
+    editorEl.scrollTop = next.scrollTop || 0;
+    updateStatusFile();
+    updateStats();
+    schedulePreview();
+  }
+  renderTabs();
+  persist();
+}
+
+function markDirty() {
+  const tab = activeTab();
+  if (!tab || tab.isDirty) return;
+  tab.isDirty = true;
+  renderTabs();
+  updateStatusFile();
 }
 
 function markClean() {
-  state.isDirty = false;
-  statusFile.textContent = state.currentFile || 'No file';
+  const tab = activeTab();
+  if (!tab) return;
+  tab.isDirty = false;
+  renderTabs();
+  updateStatusFile();
 }
 
-function isWysiwyg() {
-  return state.view === 'wysiwyg';
+function updateStatusFile() {
+  const tab = activeTab();
+  if (!tab) { statusFile.textContent = 'No file'; return; }
+  statusFile.textContent = tab.name + (tab.isDirty ? ' •' : '');
 }
 
 // ── File System Access API ─────────────────────────────────────────────
@@ -107,41 +230,37 @@ const PICKER_OPTS = {
   excludeAcceptAllOption: false,
 };
 
-function fsaSupported() {
-  return typeof window.showOpenFilePicker === 'function';
-}
+function fsaSupported() { return typeof window.showOpenFilePicker === 'function'; }
 
-function loadContent(content, filename, handle = null) {
-  editor.value = content;
-  state.currentFile = filename;
-  state.fileHandle  = handle;
-  markClean();
-  updateStats();
-  schedulePreview();
-}
-
-// ── Open ───────────────────────────────────────────────────────────────
 document.getElementById('btn-new').addEventListener('click', () => {
-  loadContent('', 'Untitled.md', null);
+  createTab('Untitled.md', '');
   markDirty();
 });
 
 document.getElementById('btn-open').addEventListener('click', async () => {
-  if (!fsaSupported()) { showMsg('File System Access API not supported in this browser', true); return; }
+  if (!fsaSupported()) { showMsg('File System Access API not supported', true); return; }
   let handles;
   try {
-    handles = await window.showOpenFilePicker({ ...PICKER_OPTS, multiple: false });
+    handles = await window.showOpenFilePicker({ ...PICKER_OPTS, multiple: true });
   } catch (e) {
     if (e.name !== 'AbortError') showMsg('Could not open file picker', true);
     return;
   }
-  const handle = handles[0];
-  const file   = await handle.getFile();
-  const text   = await file.text();
-  loadContent(text, file.name, handle);
+  for (const handle of handles) {
+    const file = await handle.getFile();
+    const text = await file.text();
+    // Reuse existing tab if same name and not dirty
+    const existing = tabs.find(t => t.name === file.name && !t.isDirty);
+    if (existing) {
+      existing.content    = text;
+      existing.fileHandle = handle;
+      switchTab(existing.id);
+    } else {
+      createTab(file.name, text, handle);
+    }
+  }
 });
 
-// ── Save ───────────────────────────────────────────────────────────────
 async function saveToHandle(handle, content) {
   const writable = await handle.createWritable();
   await writable.write(content);
@@ -158,79 +277,69 @@ async function saveToServer(filename, content) {
 }
 
 document.getElementById('btn-save').addEventListener('click', async () => {
-  if (!fsaSupported()) { showMsg('File System Access API not supported in this browser', true); return; }
-  if (state.fileHandle) {
+  if (!fsaSupported()) { showMsg('File System Access API not supported', true); return; }
+  const tab = activeTab();
+  if (!tab) return;
+  if (tab.fileHandle) {
     try {
-      await saveToHandle(state.fileHandle, editor.value);
+      const perm = await tab.fileHandle.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') await tab.fileHandle.requestPermission({ mode: 'readwrite' });
+      await saveToHandle(tab.fileHandle, editorEl.value);
+      tab.content = editorEl.value;
       markClean();
       showMsg('Saved');
     } catch (e) {
-      if (e.name === 'NotAllowedError') {
-        // Permission may need re-granting (e.g. after page reload)
-        const perm = await state.fileHandle.requestPermission({ mode: 'readwrite' });
-        if (perm === 'granted') {
-          await saveToHandle(state.fileHandle, editor.value);
-          markClean();
-          showMsg('Saved');
-        } else {
-          showMsg('Write permission denied', true);
-        }
-      } else {
-        showMsg(`Save failed: ${e.message}`, true);
-      }
+      showMsg(`Save failed: ${e.message}`, true);
     }
-  } else if (state.currentFile && !state.fileHandle) {
-    // Internal server file
-    const ok = await saveToServer(state.currentFile, editor.value);
-    if (ok) { markClean(); showMsg('Saved'); }
-    else showMsg('Save failed', true);
   } else {
-    document.getElementById('btn-save-as').click();
+    const ok = await saveToServer(tab.name, editorEl.value);
+    if (ok) { tab.content = editorEl.value; markClean(); showMsg('Saved'); }
+    else showMsg('Save failed', true);
   }
+  persist();
 });
 
 document.getElementById('btn-save-as').addEventListener('click', async () => {
-  if (!fsaSupported()) { showMsg('File System Access API not supported in this browser', true); return; }
-  const suggested = state.currentFile || 'untitled.md';
+  if (!fsaSupported()) { showMsg('File System Access API not supported', true); return; }
+  const tab = activeTab();
+  if (!tab) return;
   let handle;
   try {
-    handle = await window.showSaveFilePicker({
-      ...PICKER_OPTS,
-      suggestedName: suggested,
-    });
+    handle = await window.showSaveFilePicker({ ...PICKER_OPTS, suggestedName: tab.name });
   } catch (e) {
     if (e.name !== 'AbortError') showMsg('Could not open save dialog', true);
     return;
   }
   try {
-    await saveToHandle(handle, editor.value);
-    state.fileHandle  = handle;
-    state.currentFile = handle.name;
+    await saveToHandle(handle, editorEl.value);
+    tab.fileHandle = handle;
+    tab.name       = handle.name;
+    tab.content    = editorEl.value;
     markClean();
     showMsg(`Saved as ${handle.name}`);
+    persist();
   } catch (e) {
     showMsg(`Save failed: ${e.message}`, true);
   }
 });
 
-// ── Rename ─────────────────────────────────────────────────────────────
 document.getElementById('btn-rename').addEventListener('click', async () => {
-  if (!state.currentFile || state.fileHandle) {
-    showMsg('Rename only works for internal files — use Save As for host files', true);
-    return;
-  }
-  const name = prompt('Rename to (without .md):', state.currentFile.replace(/\.md$/, ''));
+  const tab = activeTab();
+  if (!tab) return;
+  if (tab.fileHandle) { showMsg('Use Save As to rename host files', true); return; }
+  const name = prompt('Rename to (without .md):', tab.name.replace(/\.md$/, ''));
   if (!name || !name.trim()) return;
-  const res = await fetch(`/api/files/${encodeURIComponent(state.currentFile)}/rename`, {
+  const newName = name.trim().replace(/\.md$/, '') + '.md';
+  const res = await fetch(`/api/files/${encodeURIComponent(tab.name)}/rename`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name.trim() }),
+    body: JSON.stringify({ name: newName }),
   });
   if (res.ok) {
-    const data = await res.json();
-    state.currentFile = data.name;
+    tab.name = (await res.json()).name;
     markClean();
-    showMsg(`Renamed to ${data.name}`);
+    showMsg(`Renamed to ${tab.name}`);
+    persist();
   } else showMsg('Rename failed', true);
 });
 
@@ -243,100 +352,95 @@ document.addEventListener('keydown', e => {
 });
 
 // ── View modes ─────────────────────────────────────────────────────────
-document.querySelectorAll('.view-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const view = btn.dataset.view;
-    state.view = view;
-    workspace.className = `view-${view}`;
-    document.querySelectorAll('.view-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.view === view);
-      b.setAttribute('aria-pressed', b.dataset.view === view);
-    });
-
-    const wysiwyg = view === 'wysiwyg';
-    previewEl.contentEditable = wysiwyg ? 'true' : 'false';
-    previewEl.classList.toggle('wysiwyg-active', wysiwyg);
-
-    if (view !== 'code') schedulePreview();
+function setView(view) {
+  appState.view = view;
+  workspace.className = `view-${view}`;
+  document.querySelectorAll('.view-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === view);
+    b.setAttribute('aria-pressed', b.dataset.view === view);
   });
+  const wysiwyg = view === 'wysiwyg';
+  previewEl.contentEditable = wysiwyg ? 'true' : 'false';
+  previewEl.classList.toggle('wysiwyg-active', wysiwyg);
+  if (view !== 'code') schedulePreview();
+  persist();
+}
+
+document.querySelectorAll('.view-btn').forEach(btn => {
+  btn.addEventListener('click', () => setView(btn.dataset.view));
 });
 
 // ── Flavor ─────────────────────────────────────────────────────────────
 document.querySelectorAll('input[name="flavor"]').forEach(r => {
   r.addEventListener('change', () => {
-    state.flavor = r.value;
+    appState.flavor = r.value;
     schedulePreview();
+    persist();
   });
 });
 
 // ── Live preview ───────────────────────────────────────────────────────
 function schedulePreview() {
-  if (state.view === 'code') return;
-  clearTimeout(state.previewDebounce);
-  state.previewDebounce = setTimeout(renderPreview, 300);
+  if (appState.view === 'code') return;
+  clearTimeout(appState.previewDebounce);
+  appState.previewDebounce = setTimeout(renderPreview, 300);
 }
 
 async function renderPreview() {
   const res = await fetch('/api/preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: editor.value, flavor: state.flavor }),
+    body: JSON.stringify({ content: editorEl.value, flavor: appState.flavor }),
   });
   const data = await res.json();
   previewEl.innerHTML = data.html;
-
-  // Lock mermaid blocks — store original source for round-trip
   previewEl.querySelectorAll('.mermaid').forEach(el => {
     el.contentEditable = 'false';
     el.dataset.src = el.textContent;
     if (window.mermaid) mermaid.init(undefined, el);
   });
-
-  // Re-apply contenteditable if currently in wysiwyg mode
-  if (isWysiwyg()) {
-    previewEl.contentEditable = 'true';
-  }
+  if (isWysiwyg()) previewEl.contentEditable = 'true';
 }
 
 // ── WYSIWYG → Markdown sync ────────────────────────────────────────────
 previewEl.addEventListener('input', () => {
   if (!isWysiwyg()) return;
-  clearTimeout(state.wysiwygDebounce);
-  state.wysiwygDebounce = setTimeout(() => {
-    const md = htmlToMarkdown(previewEl.innerHTML);
-    editor.value = md;
+  clearTimeout(appState.wysiwygDebounce);
+  appState.wysiwygDebounce = setTimeout(() => {
+    editorEl.value = turndown.turndown(previewEl.innerHTML);
     markDirty();
     updateStats();
+    persist();
   }, 400);
 });
 
-// ── Editor (textarea) input ────────────────────────────────────────────
-editor.addEventListener('input', () => {
+// ── Editor input ───────────────────────────────────────────────────────
+editorEl.addEventListener('input', () => {
+  const tab = activeTab();
+  if (tab) tab.content = editorEl.value;
   markDirty();
   updateStats();
   schedulePreview();
+  persist();
 });
 
-editor.addEventListener('keydown', e => {
+editorEl.addEventListener('keydown', e => {
   if (e.key === 'Tab') {
     e.preventDefault();
-    const start = editor.selectionStart;
-    const end   = editor.selectionEnd;
-    editor.value = editor.value.substring(0, start) + '  ' + editor.value.substring(end);
-    editor.selectionStart = editor.selectionEnd = start + 2;
+    const start = editorEl.selectionStart;
+    const end   = editorEl.selectionEnd;
+    editorEl.value = editorEl.value.substring(0, start) + '  ' + editorEl.value.substring(end);
+    editorEl.selectionStart = editorEl.selectionEnd = start + 2;
     markDirty();
   }
 });
 
 // ── Toolbar ────────────────────────────────────────────────────────────
-// In WYSIWYG mode, inline formatting uses execCommand.
-// Block-level elements are inserted as HTML at the cursor.
 const WYSIWYG_EXEC = {
   bold:   () => document.execCommand('bold'),
   italic: () => document.execCommand('italic'),
   strike: () => document.execCommand('strikeThrough'),
 };
-
 const WYSIWYG_BLOCK = {
   h1:         () => document.execCommand('formatBlock', false, 'h1'),
   h2:         () => document.execCommand('formatBlock', false, 'h2'),
@@ -358,32 +462,25 @@ const WYSIWYG_BLOCK = {
   link: () => {
     const url = prompt('URL:');
     if (!url) return;
-    const sel = window.getSelection();
-    const text = sel.toString() || url;
-    document.execCommand('insertHTML', false,
-      `<a href="${url}">${text}</a>`);
+    const text = window.getSelection().toString() || url;
+    document.execCommand('insertHTML', false, `<a href="${url}">${text}</a>`);
   },
   image: () => {
     const url = prompt('Image URL:');
     if (!url) return;
-    const alt = prompt('Alt text:', '');
-    document.execCommand('insertHTML', false,
-      `<img src="${url}" alt="${alt || ''}" />`);
+    const alt = prompt('Alt text:', '') || '';
+    document.execCommand('insertHTML', false, `<img src="${url}" alt="${alt}" />`);
   },
   table: () => {
     document.execCommand('insertHTML', false,
-      `<table><thead><tr><th>Header</th><th>Header</th></tr></thead>` +
-      `<tbody><tr><td>Cell</td><td>Cell</td></tr></tbody></table>`);
+      `<table><thead><tr><th>Header</th><th>Header</th></tr></thead><tbody><tr><td>Cell</td><td>Cell</td></tr></tbody></table>`);
   },
   codeblock: () => {
-    const sel = window.getSelection();
-    const text = sel.toString() || '';
-    document.execCommand('insertHTML', false,
-      `<pre><code>${text || 'code'}</code></pre>`);
+    const text = window.getSelection().toString() || '';
+    document.execCommand('insertHTML', false, `<pre><code>${text || 'code'}</code></pre>`);
   },
   task: () => {
-    document.execCommand('insertHTML', false,
-      `<ul><li><input type="checkbox" /> Task item</li></ul>`);
+    document.execCommand('insertHTML', false, `<ul><li><input type="checkbox" /> Task item</li></ul>`);
   },
 };
 
@@ -411,46 +508,28 @@ document.querySelectorAll('.tb-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const action = btn.dataset.action;
     if (!action) return;
-
     if (isWysiwyg()) {
-      // Mermaid not editable in WYSIWYG — insert into source only
-      if (action === 'mermaid') {
-        state.view = 'code';
-        workspace.className = 'view-code';
-        document.querySelectorAll('.view-btn').forEach(b => {
-          b.classList.toggle('active', b.dataset.view === 'code');
-          b.setAttribute('aria-pressed', b.dataset.view === 'code');
-        });
-        previewEl.contentEditable = 'false';
-        previewEl.classList.remove('wysiwyg-active');
-        applySnippet(SNIPPETS[action]);
-        return;
-      }
-      if (WYSIWYG_EXEC[action]) { WYSIWYG_EXEC[action](); syncWysiwygToSource(); return; }
+      if (action === 'mermaid') { setView('code'); applySnippet(SNIPPETS[action]); return; }
+      if (WYSIWYG_EXEC[action])  { WYSIWYG_EXEC[action]();  syncWysiwygToSource(); return; }
       if (WYSIWYG_BLOCK[action]) { WYSIWYG_BLOCK[action](); syncWysiwygToSource(); return; }
     }
-
-    const snippet = SNIPPETS[action];
-    if (snippet) applySnippet(snippet);
+    if (SNIPPETS[action]) applySnippet(SNIPPETS[action]);
   });
 });
 
 function syncWysiwygToSource() {
-  const md = htmlToMarkdown(previewEl.innerHTML);
-  editor.value = md;
+  editorEl.value = turndown.turndown(previewEl.innerHTML);
   markDirty();
   updateStats();
 }
 
 function applySnippet(snippet) {
-  const start  = editor.selectionStart;
-  const end    = editor.selectionEnd;
-  const sel    = editor.value.substring(start, end);
-  const before = editor.value.substring(0, start);
-  const after  = editor.value.substring(end);
-
-  let insert = '';
-  let cursorOffset = 0;
+  const start  = editorEl.selectionStart;
+  const end    = editorEl.selectionEnd;
+  const sel    = editorEl.value.substring(start, end);
+  const before = editorEl.value.substring(0, start);
+  const after  = editorEl.value.substring(end);
+  let insert = '', cursorOffset = 0;
 
   if (snippet.wrap) {
     const [pre, post] = snippet.wrap;
@@ -470,19 +549,117 @@ function applySnippet(snippet) {
     cursorOffset = insert.length;
   }
 
-  editor.value = before + insert + after;
-  editor.selectionStart = start;
-  editor.selectionEnd   = start + cursorOffset;
-  editor.focus();
+  editorEl.value = before + insert + after;
+  editorEl.selectionStart = start;
+  editorEl.selectionEnd   = start + cursorOffset;
+  editorEl.focus();
   markDirty();
   updateStats();
   schedulePreview();
 }
 
+// ── Draggable split divider ────────────────────────────────────────────
+(function initDivider() {
+  const divider  = document.getElementById('pane-divider');
+  const paneCode = document.getElementById('pane-code');
+  let dragging = false;
+  let startX, startW;
+
+  divider.addEventListener('mousedown', e => {
+    if (appState.view !== 'split') return;
+    dragging = true;
+    startX   = e.clientX;
+    startW   = paneCode.getBoundingClientRect().width;
+    divider.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const total  = workspace.getBoundingClientRect().width;
+    const newW   = Math.min(Math.max(startW + (e.clientX - startX), 120), total - 124);
+    const pct    = (newW / total * 100).toFixed(2);
+    workspace.style.gridTemplateColumns = `${pct}% 4px 1fr`;
+    try { localStorage.setItem(LS.SPLIT, pct); } catch (_) {}
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
+
+function restoreSplit() {
+  try {
+    const pct = localStorage.getItem(LS.SPLIT);
+    if (pct) workspace.style.gridTemplateColumns = `${pct}% 4px 1fr`;
+  } catch (_) {}
+}
+
+// ── Font selection ─────────────────────────────────────────────────────
+function applyFont(value) {
+  const opt = fontSelect.querySelector(`option[value="${value}"]`);
+  if (!opt) return;
+  const url = opt.dataset.url;
+  fontLink.href = `https://fonts.googleapis.com/css2?family=${url}&display=swap`;
+  document.documentElement.style.setProperty('--font-preview', `'${value}', serif`);
+  try { localStorage.setItem(LS.FONT, value); } catch (_) {}
+}
+
+fontSelect.addEventListener('change', () => applyFont(fontSelect.value));
+
+// ── Theme selection ────────────────────────────────────────────────────
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  themeSelect.value = theme;
+  try { localStorage.setItem(LS.THEME, theme); } catch (_) {}
+}
+
+themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
+
 // ── Init ───────────────────────────────────────────────────────────────
-updateStats();
+(function init() {
+  // Restore theme
+  const savedTheme = localStorage.getItem(LS.THEME) || 'dark';
+  applyTheme(savedTheme);
+
+  // Restore font
+  const savedFont = localStorage.getItem(LS.FONT) || 'Lora';
+  fontSelect.value = savedFont;
+  applyFont(savedFont);
+
+  // Restore flavor
+  const savedFlavor = localStorage.getItem(LS.FLAVOR) || 'standard';
+  appState.flavor = savedFlavor;
+  document.querySelector(`input[name="flavor"][value="${savedFlavor}"]`).checked = true;
+
+  // Restore tabs
+  const hadTabs = restore();
+  if (!hadTabs) createTab('Untitled.md', '');
+
+  // Render tabs and load active
+  renderTabs();
+  const tab = activeTab();
+  if (tab) {
+    editorEl.value = tab.content;
+    editorEl.scrollTop = tab.scrollTop || 0;
+  }
+
+  // Restore view
+  const savedView = localStorage.getItem(LS.VIEW) || 'split';
+  setView(savedView);
+  restoreSplit();
+
+  updateStatusFile();
+  updateStats();
+})();
 
 // ── Public API ─────────────────────────────────────────────────────────
-window.SD = { editor, schedulePreview, isWysiwyg };
+window.SD = { editor: editorEl, schedulePreview, isWysiwyg };
 
 })();
