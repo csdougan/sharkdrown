@@ -89,13 +89,13 @@ document.getElementById('btn-ps-remove').addEventListener('click', () => {
   const target = getTarget();
   const result = applyToLines(target.text, line => {
     let l = line;
-    if (prefix) {
+    if (prefix && l.startsWith(prefix)) {
       if (all) { while (l.startsWith(prefix)) l = l.slice(prefix.length); }
-      else if (l.startsWith(prefix)) l = l.slice(prefix.length);
+      else l = l.slice(prefix.length);
     }
-    if (suffix) {
+    if (suffix && l.endsWith(suffix)) {
       if (all) { while (l.endsWith(suffix)) l = l.slice(0, l.length - suffix.length); }
-      else if (l.endsWith(suffix)) l = l.slice(0, l.length - suffix.length);
+      else l = l.slice(0, l.length - suffix.length);
     }
     return l;
   });

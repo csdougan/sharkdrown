@@ -21,10 +21,8 @@
     </div>
 
     <div id="file-controls">
-      <select id="file-select" aria-label="Open file">
-        <option value="">— open file —</option>
-      </select>
       <button id="btn-new"     aria-label="New file">New</button>
+      <button id="btn-open"    aria-label="Open file from disk">Open</button>
       <button id="btn-save"    aria-label="Save file">Save</button>
       <button id="btn-save-as" aria-label="Save As">Save As</button>
       <button id="btn-rename"  aria-label="Rename file">Rename</button>
@@ -244,6 +242,7 @@
 
 </aside>
 
+<script src="https://cdn.jsdelivr.net/npm/turndown@7.2.0/dist/turndown.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>mermaid.initialize({ startOnLoad: false, theme: 'neutral' });</script>
 <script src="/static/js/editor.js"></script>

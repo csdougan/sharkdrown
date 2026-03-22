@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify
 import markdown
 import pymdownx
 
@@ -13,22 +13,6 @@ def index():
     return render_template("editor.html")
 
 
-@app.route("/api/files", methods=["GET"])
-def list_files():
-    files = [f for f in os.listdir(DOCUMENTS_DIR) if f.endswith(".md")]
-    return jsonify(sorted(files))
-
-
-@app.route("/api/files/<filename>", methods=["GET"])
-def read_file(filename):
-    path = os.path.join(DOCUMENTS_DIR, filename)
-    if not os.path.isfile(path):
-        return jsonify({"error": "Not found"}), 404
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
-    return jsonify({"content": content})
-
-
 @app.route("/api/files/<filename>", methods=["PUT"])
 def write_file(filename):
     data = request.get_json()
@@ -36,14 +20,6 @@ def write_file(filename):
     path = os.path.join(DOCUMENTS_DIR, filename)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/files/<filename>", methods=["DELETE"])
-def delete_file(filename):
-    path = os.path.join(DOCUMENTS_DIR, filename)
-    if os.path.isfile(path):
-        os.remove(path)
     return jsonify({"ok": True})
 
 

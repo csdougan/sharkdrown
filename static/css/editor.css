@@ -376,6 +376,37 @@ html, body { height: 100%; overflow: hidden; background: var(--bg0); color: var(
 ::-webkit-scrollbar-thumb       { background: var(--bg3); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border); }
 
+/* ── WYSIWYG editing mode ────────────────────────────────────────────── */
+#preview-content.wysiwyg-active {
+  cursor: text;
+  outline: none;
+}
+#preview-content.wysiwyg-active:focus {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Mermaid blocks locked in WYSIWYG */
+#preview-content .mermaid[contenteditable="false"] {
+  cursor: default;
+  opacity: 0.85;
+  position: relative;
+}
+#preview-content .mermaid[contenteditable="false"]::after {
+  content: 'Mermaid — edit in code view';
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text2);
+  pointer-events: none;
+}
+
+/* Make contenteditable feel like a document */
+#preview-content.wysiwyg-active p:empty::before {
+  content: '\200B';
+}
+
 /* ── Transform panel ────────────────────────────────────────────────── */
 #btn-transform { color: var(--accent); border-color: var(--accent); margin-left: auto; }
 #btn-transform:hover, #btn-transform[aria-expanded="true"] {
