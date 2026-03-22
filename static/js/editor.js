@@ -6,7 +6,7 @@
 const LS = {
   TABS: 'sd_tabs', ACTIVE_TAB: 'sd_active_tab',
   THEME: 'sd_theme', FONT: 'sd_font',
-  SPLIT: 'sd_split', PREVIEW_W: 'sd_preview_w',
+  SPLIT: 'sd_split',
   VIEW: 'sd_view', FORMAT: 'sd_format',
   LINE_NUMS: 'sd_line_nums',
 };
@@ -426,6 +426,14 @@ formatSelect.addEventListener('change', () => {
 function setView(view) {
   appState.view = view;
   workspace.className = `view-${view}`;
+
+  // Reset any inline grid override when not in split — CSS takes over
+  if (view !== 'split') {
+    workspace.style.gridTemplateColumns = '';
+  } else {
+    restoreSplit();
+  }
+
   document.querySelectorAll('.view-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.view === view);
     b.setAttribute('aria-pressed', b.dataset.view === view);
@@ -698,50 +706,11 @@ function applySnippet(snippet) {
   });
 })();
 
-// ── Preview divider (single-pane modes) ───────────────────────────────
-(function initPreviewDivider() {
-  const divider = document.getElementById('preview-divider');
-  let dragging = false, startX, startW;
-
-  divider.addEventListener('mousedown', e => {
-    if (appState.view === 'split') return;
-    dragging = true;
-    startX = e.clientX;
-    startW = document.getElementById('pane-preview').getBoundingClientRect().width;
-    divider.classList.add('dragging');
-    document.body.style.cssText += ';cursor:col-resize;user-select:none';
-    e.preventDefault();
-  });
-
-  document.addEventListener('mousemove', e => {
-    if (!dragging) return;
-    const total = workspace.getBoundingClientRect().width;
-    // Dragging left increases preview width
-    const newW  = Math.min(Math.max(startW + (startX - e.clientX), 200), total - 20);
-    workspace.style.setProperty('--preview-w', `${newW}px`);
-    try { localStorage.setItem(LS.PREVIEW_W, newW); } catch (_) {}
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false;
-    divider.classList.remove('dragging');
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  });
-})();
 
 function restoreSplit() {
   try {
     const pct = localStorage.getItem(LS.SPLIT);
     if (pct) workspace.style.gridTemplateColumns = `${pct}% 4px 1fr`;
-  } catch (_) {}
-}
-
-function restorePreviewW() {
-  try {
-    const px = localStorage.getItem(LS.PREVIEW_W);
-    if (px && parseInt(px) > 0) workspace.style.setProperty('--preview-w', `${px}px`);
   } catch (_) {}
 }
 
@@ -772,6 +741,9 @@ themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
 
 // ── Init ───────────────────────────────────────────────────────────────
 (function init() {
+  // Clear stale preview width key from old versions
+  try { localStorage.removeItem('sd_preview_w'); } catch (_) {}
+
   applyTheme(localStorage.getItem(LS.THEME) || 'dark');
 
   const savedFont = localStorage.getItem(LS.FONT) || 'Lora';
@@ -799,8 +771,6 @@ themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
 
   const savedView = localStorage.getItem(LS.VIEW) || 'split';
   setView(savedView);
-  restoreSplit();
-  restorePreviewW();
 
   const savedLineNums = localStorage.getItem(LS.LINE_NUMS) === '1';
   appState.lineNums = savedLineNums;
