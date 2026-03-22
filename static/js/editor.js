@@ -698,35 +698,36 @@ function applySnippet(snippet) {
   });
 })();
 
-// ── Preview resize handle (single-pane modes) ──────────────────────────
-(function initPreviewResize() {
-  const handle   = document.getElementById('preview-resize-handle');
-  const paneView = document.getElementById('pane-preview');
+// ── Preview divider (single-pane modes) ───────────────────────────────
+(function initPreviewDivider() {
+  const divider = document.getElementById('preview-divider');
   let dragging = false, startX, startW;
 
-  handle.addEventListener('mousedown', e => {
-    dragging = true; startX = e.clientX;
-    startW = paneView.getBoundingClientRect().width;
-    handle.classList.add('dragging');
+  divider.addEventListener('mousedown', e => {
+    if (appState.view === 'split') return;
+    dragging = true;
+    startX = e.clientX;
+    startW = document.getElementById('pane-preview').getBoundingClientRect().width;
+    divider.classList.add('dragging');
     document.body.style.cssText += ';cursor:col-resize;user-select:none';
     e.preventDefault();
   });
 
   document.addEventListener('mousemove', e => {
     if (!dragging) return;
-    const total  = workspace.getBoundingClientRect().width;
-    const delta  = startX - e.clientX;   // drag left = wider
-    const newW   = Math.min(Math.max(startW + delta, 200), total - 20);
-    const pct    = (newW / total * 100).toFixed(2);
-    paneView.style.width    = `${pct}%`;
-    paneView.style.maxWidth = `${pct}%`;
-    try { localStorage.setItem(LS.PREVIEW_W, pct); } catch (_) {}
+    const total = workspace.getBoundingClientRect().width;
+    // Dragging left increases preview width
+    const newW  = Math.min(Math.max(startW + (startX - e.clientX), 200), total - 20);
+    workspace.style.setProperty('--preview-w', `${newW}px`);
+    try { localStorage.setItem(LS.PREVIEW_W, newW); } catch (_) {}
   });
 
   document.addEventListener('mouseup', () => {
     if (!dragging) return;
-    dragging = false; handle.classList.remove('dragging');
-    document.body.style.cursor = ''; document.body.style.userSelect = '';
+    dragging = false;
+    divider.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
   });
 })();
 
@@ -739,9 +740,8 @@ function restoreSplit() {
 
 function restorePreviewW() {
   try {
-    const pct = localStorage.getItem(LS.PREVIEW_W);
-    const pane = document.getElementById('pane-preview');
-    if (pct) { pane.style.width = `${pct}%`; pane.style.maxWidth = `${pct}%`; }
+    const px = localStorage.getItem(LS.PREVIEW_W);
+    if (px && parseInt(px) > 0) workspace.style.setProperty('--preview-w', `${px}px`);
   } catch (_) {}
 }
 
