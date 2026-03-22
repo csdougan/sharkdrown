@@ -261,8 +261,6 @@ html, body {
 #workspace.view-wysiwyg #pane-divider { display:none; }
 #workspace.view-wysiwyg #pane-preview { display:flex; }
 
-#pane-code, #pane-preview { overflow:hidden; flex-direction:column; }
-
 #pane-divider {
   background: var(--border);
   cursor: col-resize;
@@ -433,3 +431,122 @@ html, body {
   #mode-controls { gap:6px; }
   #font-select, #theme-select { display:none; }
 }
+
+/* ── Empty state ─────────────────────────────────────────────────────── */
+#workspace { position: relative; }
+
+#empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg0);
+  z-index: 10;
+  gap: 16px;
+}
+#empty-state[hidden] { display: none; }
+#banner-img { max-width: 480px; width: 80%; opacity: 0.9; }
+#empty-hint { font-family: var(--font-mono); font-size: 12px; color: var(--text2); }
+
+/* ── Editor wrap + line numbers ──────────────────────────────────────── */
+#editor-wrap {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+#line-numbers {
+  background: var(--bg1);
+  border-right: 1px solid var(--border);
+  color: var(--text2);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.75;
+  padding: 20px 10px 20px 6px;
+  text-align: right;
+  user-select: none;
+  white-space: pre;
+  overflow: hidden;
+  min-width: 42px;
+  display: none;
+  flex-shrink: 0;
+}
+#line-numbers.visible { display: block; }
+
+#editor {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--bg0);
+  color: var(--text0);
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 20px 24px;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.75;
+  tab-size: 2;
+  caret-color: var(--accent);
+}
+
+/* Syntax-highlighted overlay mode */
+#editor-wrap.hljs-active #editor {
+  color: transparent;
+  caret-color: var(--accent);
+}
+#hljs-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  padding: 20px 24px;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.75;
+  pointer-events: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: transparent;
+  margin: 0;
+}
+#hljs-overlay code { background: transparent; padding: 0; font-size: inherit; }
+
+/* ── Preview resize handle (single-pane modes) ───────────────────────── */
+#preview-resize-handle {
+  display: none;
+  width: 5px;
+  cursor: col-resize;
+  background: var(--border);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+#preview-resize-handle:hover,
+#preview-resize-handle.dragging { background: var(--accent); }
+
+#workspace.view-wysiwyg #pane-preview,
+#workspace.view-code    #pane-preview {
+  flex-direction: row;
+}
+#workspace.view-wysiwyg #preview-resize-handle,
+#workspace.view-code    #preview-resize-handle {
+  display: block;
+}
+
+/* Preview pane needs flex to allow handle + content side by side */
+#pane-preview { display: flex; }
+#preview-content { flex: 1; overflow-y: auto; padding: 20px 32px; scrollbar-width: thin; scrollbar-color: var(--bg3) transparent; }
+
+/* ── Topbar label ────────────────────────────────────────────────────── */
+.topbar-label { font-size: 11px; color: var(--text2); font-family: var(--font-mono); }
+
+/* ── Status cursor ───────────────────────────────────────────────────── */
+#status-cursor { color: var(--text1); }
+
+/* ── hljs theme overrides for light/warm/hc ─────────────────────────── */
+[data-theme="light"] #hljs-overlay .hljs { background: transparent; color: var(--text0); }
+[data-theme="light"] .hljs-theme-link-override { display: none; }
+
+#pane-code { overflow: hidden; flex-direction: column; }

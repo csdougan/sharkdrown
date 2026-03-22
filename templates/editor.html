@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SharkDrown</title>
-  <link rel="icon" href="/static/images/favicon.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link id="preview-font-link" href="" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/editor.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" id="hljs-theme-link" />
 </head>
 <body>
 
@@ -30,11 +30,12 @@
     </div>
 
     <div id="mode-controls">
-      <fieldset id="flavor-toggle" aria-label="Markdown flavour">
-        <legend class="sr-only">Markdown flavour</legend>
-        <label><input type="radio" name="flavor" value="standard" checked /> Standard</label>
-        <label><input type="radio" name="flavor" value="github" /> GFM</label>
-      </fieldset>
+      <label class="topbar-label" for="format-select">Format</label>
+      <select id="format-select" aria-label="Markdown format">
+        <option value="standard">Standard MD</option>
+        <option value="github">GFM</option>
+        <option value="confluence">Confluence</option>
+      </select>
 
       <div id="view-toggle" role="group" aria-label="View mode">
         <button class="view-btn active" data-view="split"   aria-pressed="true"  title="Split view">⊞ Split</button>
@@ -62,14 +63,11 @@
     </div>
   </header>
 
-  <!-- File tabs -->
-  <div id="tab-bar" role="tablist" aria-label="Open files">
-    <!-- tabs injected by JS -->
-  </div>
+  <div id="tab-bar" role="tablist" aria-label="Open files"></div>
 
   <div id="md-toolbar" role="toolbar" aria-label="Markdown formatting">
-    <button class="tb-btn" data-action="bold"       title="Bold">      <b>B</b></button>
-    <button class="tb-btn" data-action="italic"     title="Italic">    <i>I</i></button>
+    <button class="tb-btn" data-action="bold"       title="Bold"><b>B</b></button>
+    <button class="tb-btn" data-action="italic"     title="Italic"><i>I</i></button>
     <button class="tb-btn" data-action="strike"     title="Strikethrough"><s>S</s></button>
     <button class="tb-btn" data-action="code"       title="Inline code"><code>`c`</code></button>
     <span class="tb-sep" role="separator"></span>
@@ -89,31 +87,48 @@
     <button class="tb-btn" data-action="mermaid"    title="Mermaid diagram">⬡ Mermaid</button>
     <button class="tb-btn" data-action="hr"         title="Horizontal rule">─ HR</button>
     <span class="tb-sep" role="separator"></span>
+    <button id="btn-line-nums" class="tb-btn" title="Toggle line numbers" aria-pressed="false">¶ Lines</button>
     <button id="btn-transform" class="tb-btn tb-btn--accent" title="Text transformations" aria-expanded="false" aria-controls="transform-panel">⚙ Transform</button>
   </div>
 
   <main id="workspace" class="view-split">
-    <div id="pane-code" role="region" aria-label="Markdown source editor">
-      <textarea
-        id="editor"
-        spellcheck="false"
-        autocomplete="off"
-        autocorrect="off"
-        autocapitalize="off"
-        aria-label="Markdown source"
-        aria-multiline="true"
-        placeholder="Start writing markdown…"
-      ></textarea>
+
+    <!-- Empty state shown when no tabs open -->
+    <div id="empty-state" hidden>
+      <img src="/static/images/sharkdrown_banner.svg" alt="SharkDrown" id="banner-img" />
+      <p id="empty-hint">Open a file or create a new one to get started</p>
     </div>
+
+    <div id="pane-code" role="region" aria-label="Markdown source editor">
+      <div id="editor-wrap">
+        <div id="line-numbers" aria-hidden="true"></div>
+        <textarea
+          id="editor"
+          spellcheck="false"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          aria-label="Markdown source"
+          aria-multiline="true"
+          placeholder="Start writing markdown…"
+        ></textarea>
+      </div>
+    </div>
+
     <div id="pane-divider" aria-hidden="true"></div>
+
     <div id="pane-preview" role="region" aria-label="Rendered preview">
+      <!-- Preview-only resize handle (visible in code/wysiwyg single-pane modes) -->
+      <div id="preview-resize-handle" aria-hidden="true"></div>
       <div id="preview-content" class="prose"></div>
     </div>
+
   </main>
 
   <footer id="statusbar" role="status" aria-live="polite">
     <span id="status-file">No file</span>
     <span id="status-mid">
+      <span id="status-cursor">Ln 1, Col 1</span>
       <span id="status-words">0 words</span>
       <span id="status-lines">0 lines</span>
     </span>
@@ -123,16 +138,11 @@
 </div><!-- /#app -->
 
 <aside id="transform-panel" role="complementary" aria-label="Text transformations">
-
   <div id="tp-header">
     <span id="tp-title">Transform</span>
-    <label id="tp-scope-label">
-      <input type="checkbox" id="tp-selection-only" />
-      Selection only
-    </label>
+    <label id="tp-scope-label"><input type="checkbox" id="tp-selection-only" /> Selection only</label>
     <button id="tp-close" aria-label="Close transform panel">✕</button>
   </div>
-
   <nav id="tp-tabs" role="tablist" aria-label="Transform operations">
     <button class="tp-tab active" role="tab" data-tab="prefix"     aria-selected="true"  aria-controls="tp-prefix">Prefix/Suffix</button>
     <button class="tp-tab"        role="tab" data-tab="replace"    aria-selected="false" aria-controls="tp-replace">Find/Replace</button>
@@ -140,50 +150,24 @@
     <button class="tp-tab"        role="tab" data-tab="whitespace" aria-selected="false" aria-controls="tp-whitespace">Whitespace</button>
     <button class="tp-tab"        role="tab" data-tab="ctrlchars"  aria-selected="false" aria-controls="tp-ctrlchars">Ctrl Chars</button>
   </nav>
-
   <div id="tp-prefix" class="tp-pane" role="tabpanel">
     <section class="tp-section">
       <h3 class="tp-section-title">Add to lines</h3>
-      <div class="tp-row">
-        <label class="tp-label" for="ps-add-prefix">Prefix</label>
-        <input class="tp-input" id="ps-add-prefix" type="text" placeholder="text to prepend" />
-      </div>
-      <div class="tp-row">
-        <label class="tp-label" for="ps-add-suffix">Suffix</label>
-        <input class="tp-input" id="ps-add-suffix" type="text" placeholder="text to append" />
-      </div>
-      <div class="tp-row tp-row--actions">
-        <label class="tp-check-label"><input type="checkbox" id="ps-add-skip-empty" checked /> Skip empty lines</label>
-        <button class="tp-apply" id="btn-ps-add">Add</button>
-      </div>
+      <div class="tp-row"><label class="tp-label" for="ps-add-prefix">Prefix</label><input class="tp-input" id="ps-add-prefix" type="text" placeholder="text to prepend" /></div>
+      <div class="tp-row"><label class="tp-label" for="ps-add-suffix">Suffix</label><input class="tp-input" id="ps-add-suffix" type="text" placeholder="text to append" /></div>
+      <div class="tp-row tp-row--actions"><label class="tp-check-label"><input type="checkbox" id="ps-add-skip-empty" checked /> Skip empty lines</label><button class="tp-apply" id="btn-ps-add">Add</button></div>
     </section>
     <section class="tp-section">
       <h3 class="tp-section-title">Remove from lines</h3>
-      <div class="tp-row">
-        <label class="tp-label" for="ps-rm-prefix">Prefix</label>
-        <input class="tp-input" id="ps-rm-prefix" type="text" placeholder="text to remove from start" />
-      </div>
-      <div class="tp-row">
-        <label class="tp-label" for="ps-rm-suffix">Suffix</label>
-        <input class="tp-input" id="ps-rm-suffix" type="text" placeholder="text to remove from end" />
-      </div>
-      <div class="tp-row tp-row--actions">
-        <label class="tp-check-label"><input type="checkbox" id="ps-rm-all" /> Remove all occurrences</label>
-        <button class="tp-apply" id="btn-ps-remove">Remove</button>
-      </div>
+      <div class="tp-row"><label class="tp-label" for="ps-rm-prefix">Prefix</label><input class="tp-input" id="ps-rm-prefix" type="text" placeholder="text to remove from start" /></div>
+      <div class="tp-row"><label class="tp-label" for="ps-rm-suffix">Suffix</label><input class="tp-input" id="ps-rm-suffix" type="text" placeholder="text to remove from end" /></div>
+      <div class="tp-row tp-row--actions"><label class="tp-check-label"><input type="checkbox" id="ps-rm-all" /> Remove all occurrences</label><button class="tp-apply" id="btn-ps-remove">Remove</button></div>
     </section>
   </div>
-
   <div id="tp-replace" class="tp-pane tp-pane--hidden" role="tabpanel">
     <section class="tp-section">
-      <div class="tp-row">
-        <label class="tp-label" for="fr-find">Find</label>
-        <input class="tp-input" id="fr-find" type="text" placeholder="string or /regex/" />
-      </div>
-      <div class="tp-row">
-        <label class="tp-label" for="fr-replace">Replace</label>
-        <input class="tp-input" id="fr-replace" type="text" placeholder="replacement ($1 for groups)" />
-      </div>
+      <div class="tp-row"><label class="tp-label" for="fr-find">Find</label><input class="tp-input" id="fr-find" type="text" placeholder="string or /regex/" /></div>
+      <div class="tp-row"><label class="tp-label" for="fr-replace">Replace</label><input class="tp-input" id="fr-replace" type="text" placeholder="replacement ($1 for groups)" /></div>
       <div class="tp-row tp-row--actions">
         <label class="tp-check-label"><input type="checkbox" id="fr-case" /> Case sensitive</label>
         <label class="tp-check-label"><input type="checkbox" id="fr-all" checked /> Replace all</label>
@@ -193,34 +177,17 @@
       <div id="fr-info"  class="tp-info"  aria-live="polite"></div>
     </section>
   </div>
-
   <div id="tp-fields" class="tp-pane tp-pane--hidden" role="tabpanel">
     <section class="tp-section">
-      <div class="tp-row">
-        <label class="tp-label" for="fld-delim-in">Split on</label>
-        <input class="tp-input tp-input--short" id="fld-delim-in" type="text" value="," />
-        <label class="tp-check-label" style="margin-left:8px"><input type="checkbox" id="fld-delim-regex" /> Regex</label>
-      </div>
-      <div class="tp-row">
-        <label class="tp-label" for="fld-fields">Fields</label>
-        <input class="tp-input" id="fld-fields" type="text" placeholder="1,3 or 2-4 or 1,3-5" />
-      </div>
-      <div class="tp-row">
-        <label class="tp-label" for="fld-delim-out">Join with</label>
-        <input class="tp-input tp-input--short" id="fld-delim-out" type="text" value="," />
-      </div>
-      <div class="tp-row tp-row--actions">
-        <label class="tp-check-label"><input type="checkbox" id="fld-mode-remove" /> Remove selected (keep rest)</label>
-      </div>
-      <div class="tp-row tp-row--actions">
-        <label class="tp-check-label"><input type="checkbox" id="fld-skip-empty" checked /> Skip empty lines</label>
-        <button class="tp-apply" id="btn-fld-apply">Apply</button>
-      </div>
+      <div class="tp-row"><label class="tp-label" for="fld-delim-in">Split on</label><input class="tp-input tp-input--short" id="fld-delim-in" type="text" value="," /><label class="tp-check-label" style="margin-left:8px"><input type="checkbox" id="fld-delim-regex" /> Regex</label></div>
+      <div class="tp-row"><label class="tp-label" for="fld-fields">Fields</label><input class="tp-input" id="fld-fields" type="text" placeholder="1,3 or 2-4 or 1,3-5" /></div>
+      <div class="tp-row"><label class="tp-label" for="fld-delim-out">Join with</label><input class="tp-input tp-input--short" id="fld-delim-out" type="text" value="," /></div>
+      <div class="tp-row tp-row--actions"><label class="tp-check-label"><input type="checkbox" id="fld-mode-remove" /> Remove selected (keep rest)</label></div>
+      <div class="tp-row tp-row--actions"><label class="tp-check-label"><input type="checkbox" id="fld-skip-empty" checked /> Skip empty lines</label><button class="tp-apply" id="btn-fld-apply">Apply</button></div>
       <div id="fld-error" class="tp-error" role="alert" aria-live="assertive"></div>
       <p class="tp-hint">1-based. Ranges (2-4), lists (1,3,5), negatives (-1 = last).</p>
     </section>
   </div>
-
   <div id="tp-whitespace" class="tp-pane tp-pane--hidden" role="tabpanel">
     <section class="tp-section">
       <button class="tp-apply tp-apply--full" id="btn-ws-ltrim">Strip leading whitespace</button>
@@ -231,7 +198,6 @@
       <button class="tp-apply tp-apply--full" id="btn-ws-dedup-blank">Deduplicate blank lines</button>
     </section>
   </div>
-
   <div id="tp-ctrlchars" class="tp-pane tp-pane--hidden" role="tabpanel">
     <section class="tp-section">
       <button class="tp-apply tp-apply--full" id="btn-cc-show">Show control characters</button>
@@ -251,17 +217,16 @@
         <label class="tp-check-label"><input type="checkbox" data-cc="zwsp"       /> ZWSP</label>
         <label class="tp-check-label"><input type="checkbox" data-cc="zwnj"       /> ZWNJ</label>
       </div>
-      <div class="tp-row tp-row--actions" style="margin-top:10px">
-        <button class="tp-apply" id="btn-cc-remove">Remove selected</button>
-      </div>
+      <div class="tp-row tp-row--actions" style="margin-top:10px"><button class="tp-apply" id="btn-cc-remove">Remove selected</button></div>
       <div id="cc-report" class="tp-info" style="margin-top:8px;white-space:pre-wrap;font-size:11px" aria-live="polite"></div>
     </section>
   </div>
-
 </aside>
 
 <script src="https://cdn.jsdelivr.net/npm/turndown@7.2.0/dist/turndown.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/markdown.min.js"></script>
 <script>mermaid.initialize({ startOnLoad: false, theme: 'neutral' });</script>
 <script src="/static/js/editor.js"></script>
 <script src="/static/js/transform.js"></script>
