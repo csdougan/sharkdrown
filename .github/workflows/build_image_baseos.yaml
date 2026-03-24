@@ -64,7 +64,7 @@ jobs:
       - name: Format Trivy report
         run: |
           echo "## Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
-          echo "## Image: ${{ env.REGISTRY }}/${{env.REPO_OWNER}}/${{ env.IMAGE_RELEASE_NAME }}-terralens:${{ env.APP_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Image: ${{ env.REGISTRY }}/${{env.REPO_OWNER}}/${{ env.IMAGE_RELEASE_NAME }}-${{ env.IMAGE_NAME }}:${{ env.APP_VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           while IFS= read -r line; do
               if [[ $line == "┌"* ]]; then echo '```' >> $GITHUB_STEP_SUMMARY; fi
