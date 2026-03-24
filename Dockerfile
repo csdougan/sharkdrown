@@ -1,4 +1,5 @@
 FROM ghcr.io/csdougan/sharkdrown-baseos:1.0
+ARG IMAGE_VERSION="1.0"
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt gunicorn
