@@ -1,0 +1,11 @@
+[project]
+name = "sharkdrown"
+version = "0.0.1"
+description = "SharkDrown : An Extended Markdown Editor"
+readme = "README.md"
+requires-python = ">=3.13"
+# "LICENSE" is name of the license file, which must be in root of project folder
+license = {file = "LICENSE"}
+authors = [
+    {name = "Craig Dougan", email = "csdougan@gmail.com"},
+]
