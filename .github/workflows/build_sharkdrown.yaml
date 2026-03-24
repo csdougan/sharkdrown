@@ -1,4 +1,4 @@
-name: Build Updated Base Python Image
+name: Build App
 
 env:
   REGISTRY: ghcr.io
