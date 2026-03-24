@@ -1,0 +1,73 @@
+name: Build Updated Base Python Image
+
+env:
+  REGISTRY: ghcr.io
+  DOCKER_BUILDKIT: 1
+  IMAGE_NAME: sharkdrown
+  DOCKERFILE: Dockerfile
+  DOCKER_FILE_PATH: .
+  REPO_OWNER: csdougan
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - docker/production/base/**
+jobs:
+  build-and-push-base-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Get version of Container image from Dockerfile
+        shell: bash
+        id: getver
+        run: |
+          echo "IMAGE_VERSION=$(grep 'ARG IMAGE_VERSION' ${{ env.DOCKER_FILE_PATH }}/${{ env.DOCKERFILE }} | tr -d '\"' |awk -F= '{print $2}')"|tee -a "$GITHUB_ENV"
+
+      - name: Check version
+        run: |
+          echo "version is :" 
+          echo ${{ env.IMAGE_VERSION }}
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Base Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.DOCKER_FILE_PATH }}
+          file: ${{ env.DOCKER_FILE_PATH }}/${{ env.DOCKERFILE }}
+          push: true
+          tags: ${{ env.REGISTRY }}/${{env.REPO_OWNER}}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_VERSION }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{env.REPO_OWNER}}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_VERSION }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          output: 'trivy-results.table'
+
+      - name: Format Trivy report
+        run: |
+          echo "## Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
+          echo "## Image: ${{ env.REGISTRY }}/${{env.REPO_OWNER}}/${{ env.IMAGE_RELEASE_NAME }}-${{ env.IMAGE_NAME }}:${{ env.APP_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          while IFS= read -r line; do
+              if [[ $line == "┌"* ]]; then echo '```' >> $GITHUB_STEP_SUMMARY; fi
+              echo "$line" >> $GITHUB_STEP_SUMMARY
+              if [[ $line == *"┘" ]]; then echo '```' >> $GITHUB_STEP_SUMMARY; fi
+          done < "trivy-results.table"
