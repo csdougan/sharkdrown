@@ -653,6 +653,8 @@ html, body {
   padding: 20px 24px;
   font-family: var(--font-mono);
   font-size: 13.5px;
+  font-weight: 400;
+  font-style: normal;
   line-height: 1.75;
   pointer-events: none;
   overflow: hidden;
@@ -661,7 +663,26 @@ html, body {
   background: transparent;
   margin: 0;
 }
-#hljs-overlay code { background: transparent; padding: 0; font-size: inherit; }
+#hljs-overlay code { background: transparent; padding: 0; font-size: inherit; font-family: var(--font-mono); }
+
+/* The hljs theme sets font-size: 0.875em and font-family: monospace on .hljs,
+   overriding the inherited values and causing the overlay to render differently
+   from the textarea. Force all font metrics to match the textarea exactly. */
+#hljs-overlay .hljs {
+  font-size:   inherit !important;
+  font-weight: inherit !important;
+  font-style:  inherit !important;
+  font-family: var(--font-mono) !important;
+  background:  transparent !important;
+  padding:     0 !important;
+}
+#hljs-overlay .hljs span,
+#hljs-overlay code span {
+  font-weight: inherit !important;
+  font-style:  inherit !important;
+  font-size:   inherit !important;
+  font-family: inherit !important;
+}
 
 /* Left spacer in wysiwyg mode - removed, handled by pane-preview width */
 

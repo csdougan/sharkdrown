@@ -50,6 +50,9 @@ const appState = {
   previewDebounce: null,
   wysiwygDebounce: null,
   hlDebounce:      null,
+  persistDebounce: null,
+  lineNumDebounce: null,
+  statsDebounce:   null,
 };
 
 // ── Persistence ────────────────────────────────────────────────────────
@@ -67,6 +70,12 @@ function persist() {
     localStorage.setItem(LS.FORMAT,     appState.format);
     localStorage.setItem(LS.LINE_NUMS,  appState.lineNums ? '1' : '0');
   } catch (_) {}
+}
+
+// Debounced persist — avoids JSON.stringify + localStorage write on every keystroke
+function schedulePersist() {
+  clearTimeout(appState.persistDebounce);
+  appState.persistDebounce = setTimeout(persist, 500);
 }
 
 function restore() {
@@ -108,6 +117,11 @@ function updateStats() {
   const lines = text === '' ? 0 : text.split('\n').length;
   statusWords.textContent = `${words} word${words !== 1 ? 's' : ''}`;
   statusLines.textContent = `${lines} line${lines !== 1 ? 's' : ''}`;
+}
+
+function scheduleStats() {
+  clearTimeout(appState.statsDebounce);
+  appState.statsDebounce = setTimeout(updateStats, 300);
 }
 
 function updateCursor() {
@@ -576,9 +590,14 @@ function ensureOverlay() {
   return hljsOverlay;
 }
 
+// Deactivate overlay immediately when typing starts — textarea text becomes
+// visible again (color: transparent removed), no layout interference.
+// Re-activate only after the user has paused for 800ms.
 function scheduleHighlight() {
   clearTimeout(appState.hlDebounce);
-  appState.hlDebounce = setTimeout(applyHighlight, 150);
+  editorWrap.classList.remove('hljs-active');
+  if (hljsOverlay) hljsOverlay.style.visibility = 'hidden';
+  appState.hlDebounce = setTimeout(applyHighlight, 800);
 }
 
 function applyHighlight() {
@@ -586,13 +605,12 @@ function applyHighlight() {
   if (!hljs.getLanguage('markdown')) return;
   const overlay = ensureOverlay();
   const code    = overlay.querySelector('code');
-  // Use hljs.highlight() rather than highlightElement() — avoids the
-  // data-highlighted deduplication that causes the second call to no-op
   const result  = hljs.highlight(editorEl.value, { language: 'markdown' });
   code.innerHTML = result.value;
-  editorWrap.classList.add('hljs-active');
   overlay.scrollTop  = editorEl.scrollTop;
   overlay.scrollLeft = editorEl.scrollLeft;
+  overlay.style.visibility = '';
+  editorWrap.classList.add('hljs-active');
 }
 
 editorEl.addEventListener('scroll', () => {
@@ -617,7 +635,12 @@ previewEl.addEventListener('input', () => {
 editorEl.addEventListener('input', () => {
   const tab = activeTab();
   if (tab) tab.content = editorEl.value;
-  markDirty(); updateStats(); schedulePreview(); scheduleHighlight(); updateLineNumbers(); persist();
+  markDirty();
+  scheduleStats();
+  schedulePreview();
+  scheduleHighlight();
+  scheduleLineNumbers();
+  schedulePersist();
 });
 
 editorEl.addEventListener('keyup',   updateCursor);
@@ -651,6 +674,12 @@ function updateLineNumbers() {
   if (!appState.lineNums) return;
   const lines = editorEl.value ? editorEl.value.split('\n').length : 1;
   lineNumsEl.textContent = Array.from({ length: lines }, (_, i) => i + 1).join('\n');
+}
+
+function scheduleLineNumbers() {
+  if (!appState.lineNums) return;
+  clearTimeout(appState.lineNumDebounce);
+  appState.lineNumDebounce = setTimeout(updateLineNumbers, 200);
 }
 
 function syncLineNumScroll() {
