@@ -1,5 +1,5 @@
 FROM ghcr.io/csdougan/sharkdrown-baseos:1.0
-ARG IMAGE_VERSION="1.0"
+ARG IMAGE_VERSION="1.01"
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

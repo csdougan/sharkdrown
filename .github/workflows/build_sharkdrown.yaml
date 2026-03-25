@@ -11,7 +11,12 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - docker/production/base/**
+      - Dockerfile
+      - app.py
+      - static/**
+      - templates/**
+      - requirements.txt
+      - pyproject.toml
 jobs:
   build-and-push-app-image:
     runs-on: ubuntu-latest
