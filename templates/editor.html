@@ -22,11 +22,12 @@
     </div>
 
     <div id="file-controls">
-      <button id="btn-new"     aria-label="New file">New</button>
-      <button id="btn-new-diagram" aria-label="New Mermaid diagram">⬡ Diagram</button>
-      <button id="btn-open"    aria-label="Open file from disk">Open</button>
-      <button id="btn-save"    aria-label="Save file">Save</button>
-      <button id="btn-save-as" aria-label="Save As">Save As</button>
+      <button id="btn-new"          aria-label="New file">New</button>
+      <button id="btn-new-diagram"  aria-label="New Mermaid diagram">⬡ Diagram</button>
+      <button id="btn-open"         aria-label="Open file from disk">Open</button>
+      <button id="btn-open-folder"  aria-label="Open folder for file tree">⊕ Folder</button>
+      <button id="btn-save"         aria-label="Save file">Save</button>
+      <button id="btn-save-as"      aria-label="Save As">Save As</button>
     </div>
 
     <div id="mode-controls">
@@ -92,6 +93,16 @@
     <button id="btn-transform" class="tb-btn tb-btn--accent" title="Text transformations" aria-expanded="false" aria-controls="transform-panel">⚙ Transform</button>
   </div>
 
+  <div id="main-area">
+  <aside id="file-tree" hidden aria-label="File tree">
+    <div id="file-tree-header">
+      <span id="file-tree-name">No folder open</span>
+      <button id="btn-tree-refresh" title="Refresh folder">↺</button>
+      <button id="btn-tree-close"   title="Close file tree">×</button>
+    </div>
+    <div id="file-tree-content"></div>
+  </aside>
+  <div id="tree-divider" hidden></div>
   <main id="workspace" class="view-split">
     <div id="empty-state" hidden>
       <img src="/static/images/sharkdrown_banner.png" alt="SharkDrown" id="banner-img" />
@@ -121,16 +132,18 @@
 
       <div id="editor-wrap">
         <div id="line-numbers" aria-hidden="true"></div>
-        <textarea
-          id="editor"
-          spellcheck="false"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="off"
-          aria-label="Markdown source"
-          aria-multiline="true"
-          placeholder="Start writing markdown…"
-        ></textarea>
+        <div id="editor-inner">
+          <textarea
+            id="editor"
+            spellcheck="false"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            aria-label="Markdown source"
+            aria-multiline="true"
+            placeholder="Start writing markdown…"
+          ></textarea>
+        </div>
       </div>
     </div>
 
@@ -141,6 +154,7 @@
     </div>
 
   </main>
+  </div><!-- /#main-area -->
 
   <footer id="statusbar" role="status" aria-live="polite">
     <span id="status-file">No file</span>
@@ -153,6 +167,31 @@
   </footer>
 
 </div><!-- /#app -->
+
+<!-- ── Table Picker Modal ──────────────────────────────────────────── -->
+<div id="table-picker-modal" class="modal-overlay" hidden>
+  <div id="table-picker-box">
+    <div id="table-picker-title">Insert Table</div>
+    <div id="table-picker-preview-wrap">
+      <div id="table-picker-preview"></div>
+      <div id="tbl-size-label">3 × 3</div>
+    </div>
+    <div class="tbl-field">
+      <label for="tbl-rows-slider">Rows</label>
+      <input type="range"  id="tbl-rows-slider" min="1" max="20" value="3">
+      <input type="number" id="tbl-rows-num"    min="1" max="50" value="3">
+    </div>
+    <div class="tbl-field">
+      <label for="tbl-cols-slider">Columns</label>
+      <input type="range"  id="tbl-cols-slider" min="1" max="15" value="3">
+      <input type="number" id="tbl-cols-num"    min="1" max="20" value="3">
+    </div>
+    <div id="table-picker-actions">
+      <button id="tbl-cancel-btn">Cancel</button>
+      <button id="tbl-insert-btn">Insert</button>
+    </div>
+  </div>
+</div>
 
 <aside id="transform-panel" role="complementary" aria-label="Text transformations">
   <div id="tp-header">

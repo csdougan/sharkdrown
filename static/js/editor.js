@@ -41,6 +41,7 @@ const lineNumsEl     = document.getElementById('line-numbers');
 const btnLineNums    = document.getElementById('btn-line-nums');
 const emptyState     = document.getElementById('empty-state');
 const mermaidPane    = document.getElementById('mermaid-pane');
+const editorInner    = document.getElementById('editor-inner');
 
 // ── App-level state ────────────────────────────────────────────────────
 const appState = {
@@ -50,6 +51,7 @@ const appState = {
   previewDebounce: null,
   wysiwygDebounce: null,
   hlDebounce:      null,
+  hlRaf:           null,
   persistDebounce: null,
   lineNumDebounce: null,
   statsDebounce:   null,
@@ -277,6 +279,9 @@ function renderTabs() {
 
 // ── Tab operations ─────────────────────────────────────────────────────
 function switchTab(id) {
+  // Reset filter first — restores original content to textarea before we snapshot it
+  window.SD_filter?.reset();
+
   const prev = activeTab();
   if (prev) {
     if (prev.type === 'mermaid') {
@@ -289,9 +294,6 @@ function switchTab(id) {
   activeId = id;
   const tab = activeTab();
   if (!tab) return;
-
-  // Reset filter when switching tabs — it holds stale saved content
-  window.SD_filter?.reset();
 
   if (tab.type === 'mermaid') {
     // Override the grid so the mermaid pane fills the full workspace
@@ -444,8 +446,13 @@ document.getElementById('btn-open').addEventListener('click', async () => {
 
 async function saveToHandle(handle, content) {
   const writable = await handle.createWritable();
-  await writable.write(content);
-  await writable.close();
+  try {
+    await writable.write(content);
+    await writable.close();
+  } catch (e) {
+    await writable.abort().catch(() => {});
+    throw e;
+  }
 }
 
 document.getElementById('btn-save').addEventListener('click', async () => {
@@ -585,32 +592,33 @@ function ensureOverlay() {
     const code = document.createElement('code');
     code.className = 'language-markdown';
     hljsOverlay.appendChild(code);
-    editorWrap.appendChild(hljsOverlay);
+    editorInner.appendChild(hljsOverlay);
   }
   return hljsOverlay;
 }
 
-// Deactivate overlay immediately when typing starts — textarea text becomes
-// visible again (color: transparent removed), no layout interference.
-// Re-activate only after the user has paused for 800ms.
+// Update overlay on next animation frame (fast) or debounce for very large docs.
+// The overlay uses color: transparent base text so only colored tokens show —
+// the textarea text is always visible underneath.
 function scheduleHighlight() {
+  if (appState.hlRaf) cancelAnimationFrame(appState.hlRaf);
   clearTimeout(appState.hlDebounce);
-  editorWrap.classList.remove('hljs-active');
-  if (hljsOverlay) hljsOverlay.style.visibility = 'hidden';
-  appState.hlDebounce = setTimeout(applyHighlight, 800);
+  if (editorEl.value.length > 50000) {
+    appState.hlDebounce = setTimeout(applyHighlight, 300);
+  } else {
+    appState.hlRaf = requestAnimationFrame(applyHighlight);
+  }
 }
 
 function applyHighlight() {
-  if (!window.hljs) return;
-  if (!hljs.getLanguage('markdown')) return;
+  appState.hlRaf = null;
+  if (!window.hljs || !hljs.getLanguage('markdown')) return;
   const overlay = ensureOverlay();
   const code    = overlay.querySelector('code');
   const result  = hljs.highlight(editorEl.value, { language: 'markdown' });
   code.innerHTML = result.value;
   overlay.scrollTop  = editorEl.scrollTop;
   overlay.scrollLeft = editorEl.scrollLeft;
-  overlay.style.visibility = '';
-  editorWrap.classList.add('hljs-active');
 }
 
 editorEl.addEventListener('scroll', () => {
@@ -658,14 +666,128 @@ editorEl.addEventListener('filter-cleared', () => {
   updateCursor();
 });
 
+// ── List editing helpers ───────────────────────────────────────────────
+function getLineAtCursor() {
+  const pos  = editorEl.selectionStart;
+  const text = editorEl.value;
+  const lineStart = text.lastIndexOf('\n', pos - 1) + 1;
+  const lineEnd   = text.indexOf('\n', pos);
+  return {
+    start: lineStart,
+    end:   lineEnd === -1 ? text.length : lineEnd,
+    text:  text.substring(lineStart, lineEnd === -1 ? text.length : lineEnd),
+  };
+}
+
+function parseListItem(lineText) {
+  // Task list: `- [ ] content` or `* [x] content`
+  let m = lineText.match(/^(\s*)([-*+]) (\[[ x]\] )(.*)$/);
+  if (m) return { indent: m[1], bullet: m[2], taskMark: m[3], content: m[4], type: 'task' };
+  // Unordered list
+  m = lineText.match(/^(\s*)([-*+]) (.*)$/);
+  if (m) return { indent: m[1], bullet: m[2], content: m[3], type: 'unordered' };
+  // Ordered list
+  m = lineText.match(/^(\s*)(\d+)\. (.*)$/);
+  if (m) return { indent: m[1], num: parseInt(m[2]), content: m[3], type: 'ordered' };
+  return null;
+}
+
+function setEditorValue(text, pos) {
+  editorEl.value = text;
+  if (pos !== undefined) editorEl.selectionStart = editorEl.selectionEnd = pos;
+  const tab = activeTab();
+  if (tab) tab.content = text;
+  markDirty();
+  scheduleStats();
+  schedulePreview();
+  scheduleHighlight();
+  scheduleLineNumbers();
+  schedulePersist();
+}
+
+function handleListEnter(e) {
+  if (editorEl.selectionStart !== editorEl.selectionEnd) return false;
+  const line = getLineAtCursor();
+  const item = parseListItem(line.text);
+  if (!item) return false;
+
+  e.preventDefault();
+  const pos  = editorEl.selectionStart;
+  const text = editorEl.value;
+
+  if (!item.content.trim()) {
+    // Empty list item — exit the list (remove marker, keep indent)
+    const newText = text.substring(0, line.start) + item.indent + text.substring(line.end);
+    setEditorValue(newText, line.start + item.indent.length);
+    return true;
+  }
+
+  // Continue the list on the next line
+  let nextMarker;
+  if (item.type === 'task') {
+    nextMarker = item.indent + item.bullet + ' [ ] ';
+  } else if (item.type === 'ordered') {
+    nextMarker = item.indent + (item.num + 1) + '. ';
+  } else {
+    nextMarker = item.indent + item.bullet + ' ';
+  }
+
+  const newText = text.substring(0, pos) + '\n' + nextMarker + text.substring(pos);
+  setEditorValue(newText, pos + 1 + nextMarker.length);
+  return true;
+}
+
+function handleListIndent() {
+  if (editorEl.selectionStart !== editorEl.selectionEnd) return false;
+  const line = getLineAtCursor();
+  if (!parseListItem(line.text)) return false;
+
+  const text    = editorEl.value;
+  const pos     = editorEl.selectionStart;
+  const newLine = '  ' + line.text;
+  setEditorValue(text.substring(0, line.start) + newLine + text.substring(line.end), pos + 2);
+  return true;
+}
+
+function handleListUnindent() {
+  if (editorEl.selectionStart !== editorEl.selectionEnd) return;
+  const line = getLineAtCursor();
+  const item = parseListItem(line.text);
+  if (!item) return;
+
+  const text = editorEl.value;
+  const pos  = editorEl.selectionStart;
+
+  if (item.indent.length === 0) {
+    // Top-level: remove list marker entirely
+    const newLine = item.content;
+    const removed = line.text.length - newLine.length;
+    setEditorValue(text.substring(0, line.start) + newLine + text.substring(line.end),
+      Math.max(line.start, pos - removed));
+  } else {
+    // Subitem: remove 2 spaces of indent
+    const remove  = Math.min(2, item.indent.length);
+    const newLine = line.text.substring(remove);
+    setEditorValue(text.substring(0, line.start) + newLine + text.substring(line.end),
+      Math.max(line.start, pos - remove));
+  }
+}
+
 editorEl.addEventListener('keydown', e => {
   updateCursor();
+  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (handleListEnter(e)) return;
+  }
   if (e.key === 'Tab') {
     e.preventDefault();
-    const s = editorEl.selectionStart, end = editorEl.selectionEnd;
-    editorEl.value = editorEl.value.substring(0, s) + '  ' + editorEl.value.substring(end);
-    editorEl.selectionStart = editorEl.selectionEnd = s + 2;
-    markDirty();
+    if (e.shiftKey) {
+      handleListUnindent();
+    } else if (!handleListIndent()) {
+      const s = editorEl.selectionStart, end = editorEl.selectionEnd;
+      editorEl.value = editorEl.value.substring(0, s) + '  ' + editorEl.value.substring(end);
+      editorEl.selectionStart = editorEl.selectionEnd = s + 2;
+      markDirty();
+    }
   }
 });
 
@@ -761,6 +883,7 @@ document.querySelectorAll('.tb-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const action = btn.dataset.action;
     if (!action) return;
+    if (action === 'table') { openTablePicker(); return; }
     if (isWysiwyg()) {
       if (action === 'mermaid') { setView('code'); applySnippet(SNIPPETS[action]); return; }
       if (WYSIWYG_EXEC[action])  { WYSIWYG_EXEC[action]();  syncWysiwygToSource(); return; }
@@ -910,9 +1033,176 @@ themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
 
   updateStatusFile(); updateStats(); updateCursor();
   if (tab) { schedulePreview(); scheduleHighlight(); updateLineNumbers(); }
-  // Retry highlight after CDN scripts settle
+  // Retry highlight after CDN scripts have loaded
   setTimeout(scheduleHighlight, 1500);
 })();
+
+// ── Table picker ───────────────────────────────────────────────────────
+const TABLE_GRID_ROWS = 8, TABLE_GRID_COLS = 10;
+let tblRows = 3, tblCols = 3;
+
+(function initTablePicker() {
+  const modal   = document.getElementById('table-picker-modal');
+  const preview = document.getElementById('table-picker-preview');
+  if (!modal || !preview) return;
+
+  // Build grid cells
+  for (let r = 0; r < TABLE_GRID_ROWS; r++) {
+    for (let c = 0; c < TABLE_GRID_COLS; c++) {
+      const cell = document.createElement('div');
+      cell.className   = 'tbl-cell';
+      cell.dataset.r   = r;
+      cell.dataset.c   = c;
+      cell.addEventListener('mouseover', () => { tblRows = r + 1; tblCols = c + 1; updateTablePreview(); });
+      cell.addEventListener('click',     () => { modal.hidden = true; insertTableMarkdown(tblRows, tblCols); });
+      preview.appendChild(cell);
+    }
+  }
+
+  const rowsSlider = document.getElementById('tbl-rows-slider');
+  const colsSlider = document.getElementById('tbl-cols-slider');
+  const rowsNum    = document.getElementById('tbl-rows-num');
+  const colsNum    = document.getElementById('tbl-cols-num');
+
+  function syncSliders() {
+    tblRows = parseInt(rowsSlider.value) || 3;
+    tblCols = parseInt(colsSlider.value) || 3;
+    rowsNum.value = tblRows; colsNum.value = tblCols;
+    updateTablePreview();
+  }
+  function syncNums() {
+    tblRows = Math.max(1, parseInt(rowsNum.value) || 3);
+    tblCols = Math.max(1, parseInt(colsNum.value) || 3);
+    rowsSlider.value = tblRows; colsSlider.value = tblCols;
+    updateTablePreview();
+  }
+  rowsSlider.addEventListener('input', syncSliders);
+  colsSlider.addEventListener('input', syncSliders);
+  rowsNum.addEventListener('input',   syncNums);
+  colsNum.addEventListener('input',   syncNums);
+
+  document.getElementById('tbl-cancel-btn').addEventListener('click', () => { modal.hidden = true; });
+  document.getElementById('tbl-insert-btn').addEventListener('click', () => {
+    modal.hidden = true;
+    insertTableMarkdown(tblRows, tblCols);
+  });
+  modal.addEventListener('click', e => { if (e.target === modal) modal.hidden = true; });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) modal.hidden = true; });
+})();
+
+function updateTablePreview() {
+  const rowsNum = document.getElementById('tbl-rows-num');
+  const colsNum = document.getElementById('tbl-cols-num');
+  const label   = document.getElementById('tbl-size-label');
+  if (rowsNum) rowsNum.value = tblRows;
+  if (colsNum) colsNum.value = tblCols;
+  if (label)   label.textContent = `${tblRows} × ${tblCols}`;
+  document.querySelectorAll('.tbl-cell').forEach(cell => {
+    const r = parseInt(cell.dataset.r), c = parseInt(cell.dataset.c);
+    cell.classList.toggle('tbl-cell--active', r < tblRows && c < tblCols);
+  });
+}
+
+function openTablePicker() {
+  const modal = document.getElementById('table-picker-modal');
+  if (!modal) return;
+  modal.hidden = false;
+  updateTablePreview();
+}
+
+function insertTableMarkdown(rows, cols) {
+  const headers  = Array.from({ length: cols }, (_, i) => `Header ${i + 1}`);
+  const header   = '| ' + headers.join(' | ') + ' |';
+  const sep      = '| ' + Array(cols).fill('---').join(' | ') + ' |';
+  const dataRow  = '| ' + Array(cols).fill('Cell').join(' | ') + ' |';
+  const dataRows = Math.max(1, rows - 1);
+  const block    = '\n' + [header, sep, ...Array(dataRows).fill(dataRow)].join('\n') + '\n';
+  applySnippet({ block });
+}
+
+// ── File tree ──────────────────────────────────────────────────────────
+let dirHandle = null;
+
+document.getElementById('btn-open-folder')?.addEventListener('click', openFolder);
+document.getElementById('btn-tree-close')?.addEventListener('click', () => {
+  document.getElementById('file-tree').hidden = true;
+  document.getElementById('tree-divider').hidden = true;
+});
+document.getElementById('btn-tree-refresh')?.addEventListener('click', () => {
+  if (dirHandle) renderFileTree();
+});
+
+async function openFolder() {
+  if (!window.showDirectoryPicker) { showMsg('Directory picker not supported in this browser', true); return; }
+  try {
+    dirHandle = await window.showDirectoryPicker();
+    document.getElementById('file-tree').hidden = false;
+    document.getElementById('tree-divider').hidden = false;
+    await renderFileTree();
+  } catch (e) {
+    if (e.name !== 'AbortError') showMsg('Could not open folder', true);
+  }
+}
+
+async function renderFileTree() {
+  if (!dirHandle) return;
+  document.getElementById('file-tree-name').textContent = dirHandle.name;
+  const container = document.getElementById('file-tree-content');
+  container.innerHTML = '';
+  container.appendChild(await buildTreeNode(dirHandle, 0));
+}
+
+async function buildTreeNode(handle, depth) {
+  const ul = document.createElement('ul');
+  ul.className = 'ft-list';
+  const entries = [];
+  try {
+    for await (const entry of handle.values()) entries.push(entry);
+  } catch (_) { return ul; }
+  entries.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  for (const entry of entries) {
+    const li = document.createElement('li');
+    if (entry.kind === 'directory' && depth < 3) {
+      const btn = document.createElement('button');
+      btn.className   = 'ft-dir';
+      btn.textContent = '▶ ' + entry.name;
+      const sub = document.createElement('div');
+      sub.className = 'ft-subtree';
+      sub.hidden    = true;
+      let loaded = false;
+      btn.addEventListener('click', async () => {
+        sub.hidden = !sub.hidden;
+        if (!loaded && !sub.hidden) {
+          loaded = true;
+          sub.appendChild(await buildTreeNode(entry, depth + 1));
+        }
+        btn.textContent = (sub.hidden ? '▶ ' : '▼ ') + entry.name;
+      });
+      li.appendChild(btn);
+      li.appendChild(sub);
+    } else if (entry.kind === 'file' && /\.(md|markdown|txt)$/i.test(entry.name)) {
+      const btn = document.createElement('button');
+      btn.className   = 'ft-file';
+      btn.textContent = entry.name;
+      btn.title       = entry.name;
+      btn.addEventListener('click', async () => {
+        try {
+          const file = await entry.getFile();
+          const text = await file.text();
+          const existing = tabs.find(t => t.name === file.name && !t.isDirty);
+          if (existing) { existing.content = text; existing.fileHandle = entry; switchTab(existing.id); }
+          else createTab(file.name, text, entry);
+        } catch (_) { showMsg(`Could not open ${entry.name}`, true); }
+      });
+      li.appendChild(btn);
+    }
+    if (li.hasChildNodes()) ul.appendChild(li);
+  }
+  return ul;
+}
 
 // ── Public API ─────────────────────────────────────────────────────────
 window.SD = {

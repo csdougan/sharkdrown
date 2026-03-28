@@ -203,7 +203,6 @@ document.addEventListener('keydown', e => {
 window.SD_filter = {
   reset() {
     if (!isOpen) return;
-    savedContent = null;
     deactivate();
   },
   isActive() { return isOpen; },
