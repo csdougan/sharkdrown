@@ -751,15 +751,18 @@ html, body {
   font-style: normal;
   line-height: 1.75;
   pointer-events: none;
-  overflow-y: scroll;   /* Match editor's always-scroll — identical line-wrap width */
+  overflow-y: scroll;   /* Must match editor overflow-y so scrollbar space is reserved on both */
   overflow-x: hidden;
-  scrollbar-width: none; /* Hide the overlay scrollbar (Firefox) */
+  scrollbar-width: auto; /* Reserve scrollbar space (Firefox) — must match textarea width */
+  scrollbar-color: transparent transparent; /* Make it invisible but keep the space */
   white-space: pre-wrap;
   word-wrap: break-word;
   background: transparent;
   margin: 0;
 }
-#hljs-overlay::-webkit-scrollbar { display: none; } /* Hide scrollbar (Chrome/Safari) */
+/* Chrome/Safari: keep scrollbar space reserved (don't use display:none) but make it invisible */
+#hljs-overlay::-webkit-scrollbar { background: transparent; }
+#hljs-overlay::-webkit-scrollbar-thumb { background: transparent; }
 #hljs-overlay code { background: transparent; padding: 0; font-size: inherit; font-family: var(--font-mono); }
 
 #hljs-overlay .hljs {
@@ -792,6 +795,151 @@ html, body {
 [data-theme="light"] .hljs-theme-link-override { display: none; }
 
 #pane-code { overflow: hidden; flex-direction: column; }
+
+/* ── Lint pane ───────────────────────────────────────────────────────── */
+#lint-divider {
+  height: 4px;
+  background: var(--border);
+  cursor: row-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+#lint-divider:hover, #lint-divider.dragging { background: var(--accent); }
+
+#lint-pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg1);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  min-height: 60px;
+  max-height: 80%;
+  overflow: hidden;
+}
+#lint-pane[hidden] { display: none; }
+
+#lint-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 8px;
+}
+#lint-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text1);
+  font-weight: 600;
+  flex: 1;
+}
+#lint-header-actions { display: flex; align-items: center; gap: 6px; }
+
+#btn-lint-fix-all {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  background: var(--accent);
+  color: var(--bg0);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 600;
+}
+#btn-lint-fix-all:hover { opacity: 0.85; }
+
+#btn-lint-close {
+  background: none;
+  border: none;
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+}
+#btn-lint-close:hover { color: var(--danger); }
+
+#lint-body {
+  overflow-y: auto;
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.lint-empty {
+  padding: 12px 14px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.lint-error-msg {
+  padding: 12px 14px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.lint-issue {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+.lint-issue:last-child { border-bottom: none; }
+.lint-issue:hover { background: var(--bg2); }
+.lint-issue.selected { background: var(--bg3); }
+
+.lint-pos {
+  color: var(--text2);
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 70px;
+}
+.lint-rule {
+  color: var(--accent2);
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.lint-msg {
+  color: var(--text0);
+  font-size: 11px;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lint-fix-btn {
+  background: none;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.lint-fix-btn:hover { background: var(--accent); color: var(--bg0); }
+.lint-manual-badge {
+  color: var(--text2);
+  font-size: 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1px 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  letter-spacing: 0.03em;
+}
+
+#btn-lint.active { background: var(--accent); color: var(--bg0); }
 
 /* ── Modal overlay ───────────────────────────────────────────────────── */
 .modal-overlay {

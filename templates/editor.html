@@ -91,6 +91,7 @@
     <button id="btn-line-nums" class="tb-btn" title="Toggle line numbers" aria-pressed="false">¶ Lines</button>
     <button id="btn-filter" class="tb-btn tb-btn--accent" title="Toggle line filter" aria-pressed="false" aria-expanded="false">⊟ Filter</button>
     <button id="btn-transform" class="tb-btn tb-btn--accent" title="Text transformations" aria-expanded="false" aria-controls="transform-panel">⚙ Transform</button>
+    <button id="btn-lint" class="tb-btn tb-btn--accent" title="Run markdown lint (pymarkdownlnt)" aria-expanded="false">✓ Lint</button>
   </div>
 
   <div id="main-area">
@@ -144,6 +145,18 @@
             placeholder="Start writing markdown…"
           ></textarea>
         </div>
+      </div>
+
+      <div id="lint-divider" hidden></div>
+      <div id="lint-pane" hidden aria-label="Lint results" role="region">
+        <div id="lint-header">
+          <span id="lint-title">Lint Results</span>
+          <div id="lint-header-actions">
+            <button id="btn-lint-fix-all" class="lint-action-btn" hidden>Fix All</button>
+            <button id="btn-lint-close"   aria-label="Close lint pane">✕</button>
+          </div>
+        </div>
+        <div id="lint-body"></div>
       </div>
     </div>
 
@@ -329,5 +342,6 @@
 <script src="/static/js/editor.js"></script>
 <script src="/static/js/filter.js"></script>
 <script src="/static/js/transform.js"></script>
+<script src="/static/js/lint.js"></script>
 </body>
 </html>
