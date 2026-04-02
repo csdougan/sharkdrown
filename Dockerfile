@@ -1,4 +1,4 @@
-FROM ghcr.io/csdougan/sharkdrown-baseos:1.0
+FROM ghcr.io/csdougan/baseos:1.0
 ARG IMAGE_VERSION="1.03"
 WORKDIR /app
 COPY requirements.txt .
