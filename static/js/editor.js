@@ -59,12 +59,30 @@ const appState = {
 
 // ── Persistence ────────────────────────────────────────────────────────
 function persist() {
-  const serialisable = tabs.map(t => t.type === 'mermaid'
-    ? { id: t.id, name: t.name, type: 'mermaid', diagramSrc: t.diagramSrc,
-        isDirty: t.isDirty, sourceTabId: t.sourceTabId, sourceMdId: t.sourceMdId }
-    : { id: t.id, name: t.name, content: t.content,
-        isDirty: t.isDirty, scrollTop: t.scrollTop, format: t.format, type: 'markdown' }
-  );
+  const serialisable = tabs.map(t => {
+    if (t.type === 'mermaid') {
+      return { id: t.id, name: t.name, type: 'mermaid', diagramSrc: t.diagramSrc,
+        isDirty: t.isDirty, sourceTabId: t.sourceTabId, sourceMdId: t.sourceMdId };
+    }
+    if (t.type === 'yaml') {
+      return { id: t.id, name: t.name, content: t.content,
+        isDirty: t.isDirty, scrollTop: t.scrollTop, type: 'yaml' };
+    }
+    if (t.type === 'json') {
+      return { id: t.id, name: t.name, content: t.content,
+        isDirty: t.isDirty, scrollTop: t.scrollTop, type: 'json' };
+    }
+    if (t.type === 'plaintext') {
+      return { id: t.id, name: t.name, content: t.content,
+        isDirty: t.isDirty, scrollTop: t.scrollTop, type: 'plaintext' };
+    }
+    if (t.type === 'html') {
+      return { id: t.id, name: t.name, content: t.content,
+        isDirty: t.isDirty, scrollTop: t.scrollTop, type: 'html' };
+    }
+    return { id: t.id, name: t.name, content: t.content,
+      isDirty: t.isDirty, scrollTop: t.scrollTop, format: t.format, type: 'markdown' };
+  });
   try {
     localStorage.setItem(LS.TABS,       JSON.stringify(serialisable));
     localStorage.setItem(LS.ACTIVE_TAB, activeId || '');
@@ -88,7 +106,7 @@ function restore() {
       if (Array.isArray(saved) && saved.length) {
         tabs = saved.map(t => t.type === 'mermaid'
           ? { ...t, fileHandle: null }
-          : { ...t, fileHandle: null, type: 'markdown' }
+          : { ...t, fileHandle: null }
         );
         tabSeq = tabs.reduce((m, t) => Math.max(m, parseInt(t.id.replace('tab_',''))||0), 0);
         activeId = localStorage.getItem(LS.ACTIVE_TAB) || tabs[0].id;
@@ -138,20 +156,22 @@ function updateCursor() {
 function isWysiwyg() { return appState.view === 'wysiwyg'; }
 
 function updateEmptyState() {
-  const noTabs     = tabs.length === 0;
-  const isMermaid  = !noTabs && activeTab()?.type === 'mermaid';
-  const isMarkdown = !noTabs && !isMermaid;
+  const noTabs    = tabs.length === 0;
+  const isMermaid = !noTabs && activeTab()?.type === 'mermaid';
+  // Show code and preview panes for all non-mermaid tabs (markdown, html, yaml, json, plaintext)
+  const showCodeAndPreview = !noTabs && !isMermaid;
 
   emptyState.hidden = !noTabs;
-  document.getElementById('pane-code').style.display    = isMarkdown ? '' : 'none';
-  document.getElementById('pane-divider').style.display = isMarkdown ? '' : 'none';
-  document.getElementById('pane-preview').style.display = isMarkdown ? '' : 'none';
+  document.getElementById('pane-code').style.display    = showCodeAndPreview ? '' : 'none';
+  document.getElementById('pane-divider').style.display = showCodeAndPreview ? '' : 'none';
+  document.getElementById('pane-preview').style.display = showCodeAndPreview ? '' : 'none';
   mermaidPane.classList.toggle('active', isMermaid);
 }
 
 // ── Format conversion ──────────────────────────────────────────────────
 // MD↔GFM differences are minor — task lists, ~~strike~~, tables all work in both.
 // The meaningful conversion is MD/GFM → Confluence wiki markup.
+// JSON↔YAML conversion is handled server-side via pandoc.
 
 function convertContent(content, fromFormat, toFormat) {
   if (fromFormat === toFormat) return content;
@@ -255,7 +275,11 @@ function renderTabs() {
     el.className   = 'file-tab'
       + (tab.id === activeId ? ' active' : '')
       + (tab.isDirty ? ' dirty' : '')
-      + (tab.type === 'mermaid' ? ' mermaid-tab' : '');
+      + (tab.type === 'mermaid' ? ' mermaid-tab' : '')
+      + (tab.type === 'html' ? ' html-tab' : '')
+      + (tab.type === 'yaml' ? ' yaml-tab' : '')
+      + (tab.type === 'json' ? ' json-tab' : '')
+      + (tab.type === 'plaintext' ? ' plaintext-tab' : '');
     el.role        = 'tab';
     el.setAttribute('aria-selected', tab.id === activeId);
 
@@ -316,7 +340,12 @@ function switchTab(id) {
     window.MermaidEditor?.unmount();
     editorEl.value     = tab.content;
     editorEl.scrollTop = tab.scrollTop || 0;
-    const fmt = tab.format || appState.format;
+
+    // For markdown tabs, use stored format; for other types, show their type as format
+    let fmt = (tab.type === 'markdown') ? (tab.format || appState.format || 'standard') : tab.type;
+    // Validate fmt against known options; default to 'standard' if unknown
+    const validFormats = ['standard', 'github', 'confluence', 'html', 'json', 'yaml', 'plaintext'];
+    if (!validFormats.includes(fmt)) fmt = 'standard';
     formatSelect.value = fmt;
     appState.format    = fmt;
     updateEmptyState();
@@ -332,9 +361,10 @@ function switchTab(id) {
 }
 
 function createTab(name, content = '', fileHandle = null, format = null) {
+  const tabFormat = format || appState.format || 'standard';
   const tab = {
     id: newTabId(), name, content, isDirty: false,
-    fileHandle, scrollTop: 0, format: format || appState.format,
+    fileHandle, scrollTop: 0, format: tabFormat,
     type: 'markdown',
   };
   tabs.push(tab);
@@ -347,6 +377,61 @@ function createMermaidTab(name = 'Diagram', src = '', sourceTabId = null, source
     id: newTabId(), name, type: 'mermaid',
     diagramSrc: src, isDirty: false,
     sourceTabId, sourceMdId,
+  };
+  tabs.push(tab);
+  switchTab(tab.id);
+  return tab;
+}
+
+function createHtmlTab(name, content = '', fileHandle = null) {
+  const boilerplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title></title>
+</head>
+<body>
+</body>
+</html>`;
+  const tab = {
+    id: newTabId(), name, content: content || boilerplate, isDirty: false,
+    fileHandle, scrollTop: 0, type: 'html',
+  };
+  tabs.push(tab);
+  // HTML files are code — open in code view, don't persist view change
+  const prevView = appState.view;
+  appState.view = 'code';
+  workspace.className = 'view-code';
+  switchTab(tab.id);
+  appState.view = prevView;
+  return tab;
+}
+
+function createYamlTab(name, content = '', fileHandle = null) {
+  const tab = {
+    id: newTabId(), name, content: content || '---\n', isDirty: false,
+    fileHandle, scrollTop: 0, type: 'yaml',
+  };
+  tabs.push(tab);
+  switchTab(tab.id);
+  return tab;
+}
+
+function createJsonTab(name, content = '', fileHandle = null) {
+  const tab = {
+    id: newTabId(), name, content: content || '{}', isDirty: false,
+    fileHandle, scrollTop: 0, type: 'json',
+  };
+  tabs.push(tab);
+  switchTab(tab.id);
+  return tab;
+}
+
+function createPlainTextTab(name, content = '', fileHandle = null) {
+  const tab = {
+    id: newTabId(), name, content, isDirty: false,
+    fileHandle, scrollTop: 0, type: 'plaintext',
   };
   tabs.push(tab);
   switchTab(tab.id);
@@ -416,13 +501,58 @@ function updateStatusFile() {
 
 // ── File System Access API ─────────────────────────────────────────────
 const PICKER_OPTS = {
-  types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown'], 'text/plain': ['.txt'] } }],
+  types: [{
+    description: 'All Supported Files',
+    accept: {
+      'text/markdown': ['.md', '.markdown'],
+      'text/yaml': ['.yml', '.yaml'],
+      'application/json': ['.json', '.jsonc'],
+      'text/html': ['.html', '.htm'],
+      'application/epub+zip': ['.epub'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'text/plain': ['.txt'],
+    },
+  }],
+  excludeAcceptAllOption: false,
+};
+const YamlPickerOpts = {
+  types: [{ description: 'YAML', accept: { 'text/yaml': ['.yml', '.yaml'] } }],
+  excludeAcceptAllOption: false,
+};
+const JsonPickerOpts = {
+  types: [{ description: 'JSON', accept: { 'application/json': ['.json', '.jsonc'] } }],
   excludeAcceptAllOption: false,
 };
 function fsaSupported() { return typeof window.showOpenFilePicker === 'function'; }
 
-document.getElementById('btn-new').addEventListener('click', () => {
-  createTab('Untitled.md', '');
+document.getElementById('btn-new').addEventListener('click', async () => {
+  const fmt = await showFiletypePicker('Untitled', 'Create new file as:');
+  if (!fmt) return;
+
+  const tabNames = {
+    'markdown': 'Untitled.md',
+    'github': 'Untitled.md',
+    'confluence': 'Untitled.md',
+    'html': 'Untitled.html',
+    'yaml': 'Untitled.yaml',
+    'json': 'Untitled.json',
+    'plaintext': 'Untitled.txt',
+  };
+
+  const name = tabNames[fmt] || 'Untitled.md';
+
+  if (fmt === 'html') {
+    createHtmlTab(name, '');
+  } else if (fmt === 'yaml') {
+    createYamlTab(name, '');
+  } else if (fmt === 'json') {
+    createJsonTab(name, '');
+  } else if (fmt === 'plaintext') {
+    createPlainTextTab(name, '');
+  } else {
+    // markdown, github, confluence — these map directly to tab formats
+    createTab(name, '', null, fmt);
+  }
   markDirty();
 });
 
@@ -438,11 +568,154 @@ document.getElementById('btn-open').addEventListener('click', async () => {
   for (const handle of handles) {
     const file = await handle.getFile();
     const text = await file.text();
-    const existing = tabs.find(t => t.name === file.name && !t.isDirty);
-    if (existing) { existing.content = text; existing.fileHandle = handle; switchTab(existing.id); }
-    else createTab(file.name, text, handle);
+    const lname = file.name.toLowerCase();
+
+    // HTML: prompt for open as HTML or convert to Markdown
+    if (lname.endsWith('.html') || lname.endsWith('.htm')) {
+      const choice = await showHtmlImportPicker(file.name);
+      if (choice === null) continue; // cancelled
+      if (choice === 'html') {
+        const existing = tabs.find(t => t.name === file.name && !t.isDirty && t.type === 'html');
+        if (existing) { existing.content = text; existing.fileHandle = handle; switchTab(existing.id); }
+        else createHtmlTab(file.name, text, handle);
+      } else {
+        // Convert HTML to Markdown using Turndown
+        const md = turndown.turndown(text);
+        const tabName = file.name.replace(/\.html?$/i, '.md');
+        createTab(tabName, md, null);
+        showMsg('Converted to Markdown');
+      }
+      continue;
+    }
+
+    // YAML files
+    if (lname.endsWith('.yml') || lname.endsWith('.yaml')) {
+      const existing = tabs.find(t => t.name === file.name && !t.isDirty && t.type === 'yaml');
+      if (existing) { existing.content = text; existing.fileHandle = handle; switchTab(existing.id); }
+      else createYamlTab(file.name, text, handle);
+      continue;
+    }
+
+    // JSON files
+    if (lname.endsWith('.json') || lname.endsWith('.jsonc')) {
+      const existing = tabs.find(t => t.name === file.name && !t.isDirty && t.type === 'json');
+      if (existing) { existing.content = text; existing.fileHandle = handle; switchTab(existing.id); }
+      else createJsonTab(file.name, text, handle);
+      continue;
+    }
+
+    // Plain text
+    if (lname.endsWith('.txt')) {
+      const existing = tabs.find(t => t.name === file.name && !t.isDirty && t.type === 'plaintext');
+      if (existing) { existing.content = text; existing.fileHandle = handle; switchTab(existing.id); }
+      else createPlainTextTab(file.name, text, handle);
+      continue;
+    }
+
+    // EPUB: server-side import
+    if (lname.endsWith('.epub')) {
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch('/api/import/epub', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) { showMsg(data.error || 'Import failed', true); return; }
+        const tabName = file.name.replace(/\.epub$/i, '') + '.md';
+        const tab = createTab(tabName, data.markdown, null);
+        tab.epubImages = data.images || {};
+        showMsg('EPUB imported');
+      } catch (e) { showMsg(`Import failed: ${e.message}`, true); }
+      continue;
+    }
+
+    // DOCX: server-side import
+    if (lname.endsWith('.docx')) {
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch('/api/import/docx', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) { showMsg(data.error || 'Import failed', true); return; }
+        const tabName = file.name.replace(/\.docx$/i, '') + '.md';
+        createTab(tabName, data.markdown, null);
+        showMsg('DOCX imported');
+      } catch (e) { showMsg(`Import failed: ${e.message}`, true); }
+      continue;
+    }
+
+    // .md and .markdown files: standard markdown tabs
+    if (lname.endsWith('.md') || lname.endsWith('.markdown')) {
+      const existing = tabs.find(t => t.name === file.name && !t.isDirty);
+      if (existing) { existing.content = text; existing.fileHandle = handle; switchTab(existing.id); }
+      else createTab(file.name, text, handle, 'standard');
+      continue;
+    }
+
+    // Unknown extension: show filetype picker modal
+    const chosenType = await showFiletypePicker(file.name, `Unrecognized file "${file.name}" — select type:`);
+    if (!chosenType) continue;
+
+    if (chosenType === 'html') {
+      createHtmlTab(file.name, text, handle);
+    } else if (chosenType === 'yaml') {
+      createYamlTab(file.name, text, handle);
+    } else if (chosenType === 'json') {
+      createJsonTab(file.name, text, handle);
+    } else if (chosenType === 'plaintext') {
+      createPlainTextTab(file.name, text, handle);
+    } else {
+      // markdown, github, confluence
+      createTab(file.name, text, handle, chosenType);
+    }
   }
 });
+
+// ── Filetype picker modal ───────────────────────────────────────────────
+const ftModal = document.getElementById('filetype-picker-modal');
+const ftDesc = document.getElementById('filetype-picker-desc');
+const ftSelect = document.getElementById('filetype-select');
+const ftCancelBtn = document.getElementById('filetype-cancel-btn');
+const ftOkBtn = document.getElementById('filetype-ok-btn');
+
+let ftResolve = null;
+
+ftCancelBtn.addEventListener('click', () => { ftModal.hidden = true; ftResolve(null); });
+ftOkBtn.addEventListener('click', () => { ftModal.hidden = true; ftResolve(ftSelect.value); });
+ftModal.addEventListener('click', e => { if (e.target === ftModal) { ftModal.hidden = true; ftResolve(null); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !ftModal.hidden) { ftModal.hidden = true; ftResolve(null); } });
+
+function showFiletypePicker(filename, desc) {
+  ftDesc.textContent = desc || `Unrecognized file "${filename}"`;
+  ftSelect.value = 'markdown';
+  ftModal.hidden = false;
+  return new Promise(resolve => { ftResolve = resolve; });
+}
+
+// ── HTML import picker modal ─────────────────────────────────────────────
+const htmlImportModal = document.getElementById('html-import-modal');
+const htmlImportFilename = document.getElementById('html-import-filename');
+const htmlImportCancelBtn = document.getElementById('html-import-cancel-btn');
+const htmlImportOkBtn = document.getElementById('html-import-ok-btn');
+const htmlImportRadios = document.querySelectorAll('input[name="html-import-choice"]');
+
+let htmlImportResolve = null;
+
+htmlImportCancelBtn.addEventListener('click', () => { htmlImportModal.hidden = true; htmlImportResolve(null); });
+htmlImportOkBtn.addEventListener('click', () => {
+  htmlImportModal.hidden = true;
+  const selected = document.querySelector('input[name="html-import-choice"]:checked');
+  htmlImportResolve(selected ? selected.value : null);
+});
+htmlImportModal.addEventListener('click', e => { if (e.target === htmlImportModal) { htmlImportModal.hidden = true; htmlImportResolve(null); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !htmlImportModal.hidden) { htmlImportModal.hidden = true; htmlImportResolve(null); } });
+
+function showHtmlImportPicker(filename) {
+  htmlImportFilename.textContent = `"${filename}"`;
+  // Reset to "Open as HTML" selected
+  document.querySelector('input[name="html-import-choice"][value="html"]').checked = true;
+  htmlImportModal.hidden = false;
+  return new Promise(resolve => { htmlImportResolve = resolve; });
+}
 
 async function saveToHandle(handle, content) {
   const writable = await handle.createWritable();
@@ -461,6 +734,7 @@ document.getElementById('btn-save').addEventListener('click', async () => {
   if (!tab) return;
   if (tab.type === 'mermaid') { showMsg('Use Export in the diagram editor to save', true); return; }
   if (!tab.fileHandle) { document.getElementById('btn-save-as').click(); return; }
+  const opts = tab.type === 'html' ? HTML_PICKER_OPTS : PICKER_OPTS;
   try {
     const perm = await tab.fileHandle.queryPermission({ mode: 'readwrite' });
     if (perm !== 'granted') await tab.fileHandle.requestPermission({ mode: 'readwrite' });
@@ -477,8 +751,9 @@ document.getElementById('btn-save-as').addEventListener('click', async () => {
   const tab = activeTab();
   if (!tab) return;
   if (tab.type === 'mermaid') { showMsg('Use Export in the diagram editor to save', true); return; }
+  const opts = tab.type === 'html' ? HTML_PICKER_OPTS : PICKER_OPTS;
   let handle;
-  try { handle = await window.showSaveFilePicker({ ...PICKER_OPTS, suggestedName: tab.name }); }
+  try { handle = await window.showSaveFilePicker({ ...opts, suggestedName: tab.name }); }
   catch (e) { if (e.name !== 'AbortError') showMsg('Could not open save dialog', true); return; }
   try {
     await saveToHandle(handle, editorEl.value);
@@ -486,6 +761,19 @@ document.getElementById('btn-save-as').addEventListener('click', async () => {
     markClean(); showMsg(`Saved as ${handle.name}`); persist();
   } catch (e) { showMsg(`Save failed: ${e.message}`, true); }
 });
+
+const EPUB_PICKER_OPTS = {
+  types: [{ description: 'EPUB', accept: { 'application/epub+zip': ['.epub'] } }],
+  excludeAcceptAllOption: false,
+};
+const HTML_PICKER_OPTS = {
+  types: [{ description: 'HTML', accept: { 'text/html': ['.html', '.htm'] } }],
+  excludeAcceptAllOption: false,
+};
+const DOCX_PICKER_OPTS = {
+  types: [{ description: 'Word Document', accept: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } }],
+  excludeAcceptAllOption: false,
+};
 
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); document.getElementById('btn-save').click(); }
@@ -496,6 +784,41 @@ formatSelect.addEventListener('change', () => {
   const newFormat = formatSelect.value;
   const tab = activeTab();
   if (!tab) { appState.format = newFormat; return; }
+
+  // Non-markdown tabs: yaml/json can switch to each other, others cannot change format
+  if (tab.type === 'yaml') {
+    if (newFormat !== 'json') {
+      formatSelect.value = 'yaml'; // reset to current
+      showMsg('Only JSON format is available for YAML tabs', true);
+      return;
+    }
+    // Convert YAML to JSON
+    convertYamlToJson();
+    return;
+  }
+  if (tab.type === 'json') {
+    if (newFormat !== 'yaml') {
+      formatSelect.value = 'json'; // reset to current
+      showMsg('Only YAML format is available for JSON tabs', true);
+      return;
+    }
+    // Convert JSON to YAML
+    convertJsonToYaml();
+    return;
+  }
+  if (tab.type === 'html' || tab.type === 'plaintext') {
+    formatSelect.value = tab.type;
+    showMsg(`Format cannot be changed for ${tab.type} tabs`, true);
+    return;
+  }
+
+  // Markdown tabs: cannot switch to yaml/json/plaintext/html
+  if (['yaml', 'json', 'plaintext', 'html'].includes(newFormat)) {
+    formatSelect.value = tab.format || appState.format;
+    showMsg('Cannot switch from Markdown to ' + newFormat, true);
+    return;
+  }
+
   const oldFormat = tab.format || appState.format;
   if (oldFormat !== newFormat) {
     const converted = convertContent(editorEl.value, oldFormat, newFormat);
@@ -511,6 +834,62 @@ formatSelect.addEventListener('change', () => {
   appState.format = newFormat;
   persist();
 });
+
+async function convertYamlToJson() {
+  const tab = activeTab();
+  if (!tab || tab.type !== 'yaml') return;
+  try {
+    const res = await fetch('/api/convert/yaml-to-json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: editorEl.value }),
+    });
+    const data = await res.json();
+    if (data.error) { showMsg(data.error, true); return; }
+    editorEl.value = data.content;
+    tab.content = data.content;
+    tab.type = 'json';
+    tab.name = tab.name.replace(/\.ya?ml$/i, '.json');
+    formatSelect.value = 'json';
+    appState.format = 'json';
+    markDirty();
+    schedulePreview();
+    scheduleHighlight();
+    persist();
+    showMsg('Converted to JSON');
+    renderTabs();
+  } catch (e) {
+    showMsg('Conversion failed: ' + e.message, true);
+  }
+}
+
+async function convertJsonToYaml() {
+  const tab = activeTab();
+  if (!tab || tab.type !== 'json') return;
+  try {
+    const res = await fetch('/api/convert/json-to-yaml', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: editorEl.value }),
+    });
+    const data = await res.json();
+    if (data.error) { showMsg(data.error, true); return; }
+    editorEl.value = data.content;
+    tab.content = data.content;
+    tab.type = 'yaml';
+    tab.name = tab.name.replace(/\.json$/i, '.yaml');
+    formatSelect.value = 'yaml';
+    appState.format = 'yaml';
+    markDirty();
+    schedulePreview();
+    scheduleHighlight();
+    persist();
+    showMsg('Converted to YAML');
+    renderTabs();
+  } catch (e) {
+    showMsg('Conversion failed: ' + e.message, true);
+  }
+}
 
 // ── View modes ─────────────────────────────────────────────────────────
 function setView(view) {
@@ -547,6 +926,25 @@ function schedulePreview() {
 }
 
 async function renderPreview() {
+  const tab = activeTab();
+  if (!tab) return;
+
+  if (tab.type === 'html') {
+    // HTML tabs: sandbox in iframe so scripts can't navigate the parent page
+    previewEl.innerHTML = '<iframe sandbox="allow-scripts" class="html-preview-frame" title="HTML preview"></iframe>';
+    const frame = previewEl.querySelector('.html-preview-frame');
+    frame.srcdoc = tab.content;
+    return;
+  }
+
+  if (tab.type === 'yaml' || tab.type === 'json' || tab.type === 'plaintext') {
+    // For non-markdown types, show content as-is in a pre block
+    previewEl.innerHTML = '<pre class="preview-plain">' + escapeHtml(tab.content) + '</pre>';
+    if (isWysiwyg()) previewEl.contentEditable = 'true';
+    return;
+  }
+
+  // Markdown tabs (standard, github, confluence)
   const flavor = appState.format === 'github' ? 'github' : 'standard';
   const content = appState.format === 'confluence'
     ? confluenceToMd(editorEl.value)   // convert to MD for server rendering
@@ -582,6 +980,15 @@ async function renderPreview() {
   if (isWysiwyg()) previewEl.contentEditable = 'true';
 }
 
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // ── Syntax highlighting ────────────────────────────────────────────────
 let hljsOverlay = null;
 
@@ -612,11 +1019,31 @@ function scheduleHighlight() {
 
 function applyHighlight() {
   appState.hlRaf = null;
-  if (!window.hljs || !hljs.getLanguage('markdown')) return;
+  if (!window.hljs) return;
   const overlay = ensureOverlay();
   const code    = overlay.querySelector('code');
-  const result  = hljs.highlight(editorEl.value, { language: 'markdown' });
-  code.innerHTML = result.value;
+  const tab     = activeTab();
+  if (tab && tab.type === 'html' && hljs.getLanguage('html')) {
+    code.className = 'language-html';
+    const result = hljs.highlight(editorEl.value, { language: 'html' });
+    code.innerHTML = result.value;
+  } else if (tab && tab.type === 'json' && hljs.getLanguage('json')) {
+    code.className = 'language-json';
+    const result = hljs.highlight(editorEl.value, { language: 'json' });
+    code.innerHTML = result.value;
+  } else if (tab && tab.type === 'yaml' && hljs.getLanguage('yaml')) {
+    code.className = 'language-yaml';
+    const result = hljs.highlight(editorEl.value, { language: 'yaml' });
+    code.innerHTML = result.value;
+  } else if (tab && tab.type === 'plaintext') {
+    // No highlighting for plaintext - clear any existing
+    code.className = '';
+    code.innerHTML = '';
+  } else if (hljs.getLanguage('markdown')) {
+    code.className = 'language-markdown';
+    const result = hljs.highlight(editorEl.value, { language: 'markdown' });
+    code.innerHTML = result.value;
+  }
   overlay.scrollTop  = editorEl.scrollTop;
   overlay.scrollLeft = editorEl.scrollLeft;
 }
@@ -1183,7 +1610,7 @@ async function buildTreeNode(handle, depth) {
       });
       li.appendChild(btn);
       li.appendChild(sub);
-    } else if (entry.kind === 'file' && /\.(md|markdown|txt)$/i.test(entry.name)) {
+    } else if (entry.kind === 'file' && /\.(md|markdown|yml|yaml|json|jsonc|htm|html|txt)$/i.test(entry.name)) {
       const btn = document.createElement('button');
       btn.className   = 'ft-file';
       btn.textContent = entry.name;
@@ -1192,9 +1619,20 @@ async function buildTreeNode(handle, depth) {
         try {
           const file = await entry.getFile();
           const text = await file.text();
+          const lname = file.name.toLowerCase();
           const existing = tabs.find(t => t.name === file.name && !t.isDirty);
-          if (existing) { existing.content = text; existing.fileHandle = entry; switchTab(existing.id); }
-          else createTab(file.name, text, entry);
+          if (existing) { existing.content = text; existing.fileHandle = entry; switchTab(existing.id); return; }
+          if (lname.endsWith('.yml') || lname.endsWith('.yaml')) {
+            createYamlTab(file.name, text, entry);
+          } else if (lname.endsWith('.json') || lname.endsWith('.jsonc')) {
+            createJsonTab(file.name, text, entry);
+          } else if (lname.endsWith('.htm') || lname.endsWith('.html')) {
+            createHtmlTab(file.name, text, entry);
+          } else if (lname.endsWith('.txt')) {
+            createPlainTextTab(file.name, text, entry);
+          } else {
+            createTab(file.name, text, entry);
+          }
         } catch (_) { showMsg(`Could not open ${entry.name}`, true); }
       });
       li.appendChild(btn);
@@ -1209,6 +1647,7 @@ window.SD = {
   editor: editorEl,
   schedulePreview,
   isWysiwyg,
+  activeTab,
   insertMermaid(src, sourceTabId, sourceMdId) {
     if (!sourceTabId) {
       // No source tab — insert into active markdown tab or create one

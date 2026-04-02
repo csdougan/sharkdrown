@@ -12,13 +12,32 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" id="hljs-theme-link" />
 </head>
 <body>
+<script>
+
+async function getRequest(url = '') {
+    const response = await fetch(url, {
+        method: 'GET',
+        cache: 'no-cache'
+    })
+    return response.json()
+}
+document.addEventListener('DOMContentLoaded', function () {
+    let url = document.location
+    let route = "/flaskwebgui-keep-server-alive"
+    let interval_request = 3 * 1000 //sec
+    function keep_alive_server() {
+        getRequest(url + route)
+            .then(data => console.log(data))
+    }
+    setInterval(keep_alive_server, interval_request)()
+})
+</script>
 
 <div id="app">
 
   <header id="topbar" role="banner">
     <div id="brand">
-      <span class="brand-shark">⬡</span>
-      <span class="brand-name">SharkDrown</span>
+      <img src="/static/images/SharkDrownName.png" alt="SharkDrown" id="brand-img" />
     </div>
 
     <div id="file-controls">
@@ -32,10 +51,14 @@
 
     <div id="mode-controls">
       <label class="topbar-label" for="format-select">Format</label>
-      <select id="format-select" aria-label="Markdown format">
+      <select id="format-select" aria-label="Format">
         <option value="standard">Standard MD</option>
         <option value="github">GFM</option>
         <option value="confluence">Confluence</option>
+        <option value="html">HTML</option>
+        <option value="json">JSON</option>
+        <option value="yaml">YAML</option>
+        <option value="plaintext">Plain Text</option>
       </select>
 
       <div id="view-toggle" role="group" aria-label="View mode">
@@ -206,6 +229,52 @@
   </div>
 </div>
 
+<!-- ── File Type Picker Modal ──────────────────────────────────────── -->
+<div id="filetype-picker-modal" class="modal-overlay" hidden>
+  <div id="filetype-picker-box">
+    <div id="filetype-picker-title">Select file type</div>
+    <p id="filetype-picker-desc"></p>
+    <div class="filetype-picker-field">
+      <label for="filetype-select">Open as:</label>
+      <select id="filetype-select">
+        <option value="markdown">Markdown (Standard)</option>
+        <option value="github">GitHub Markdown (GFM)</option>
+        <option value="confluence">Confluence</option>
+        <option value="html">HTML</option>
+        <option value="yaml">YAML</option>
+        <option value="json">JSON</option>
+        <option value="plaintext">Plain Text</option>
+      </select>
+    </div>
+    <div id="filetype-picker-actions">
+      <button id="filetype-cancel-btn">Cancel</button>
+      <button id="filetype-ok-btn">Open</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── HTML Import Modal ──────────────────────────────────────────────── -->
+<div id="html-import-modal" class="modal-overlay" hidden>
+  <div id="html-import-box">
+    <div id="html-import-title">Open HTML file</div>
+    <p id="html-import-filename"></p>
+    <div class="html-import-options">
+      <label class="radio-label">
+        <input type="radio" name="html-import-choice" value="html" checked />
+        Open as HTML code
+      </label>
+      <label class="radio-label">
+        <input type="radio" name="html-import-choice" value="markdown" />
+        Convert to Markdown
+      </label>
+    </div>
+    <div id="html-import-actions">
+      <button id="html-import-cancel-btn">Cancel</button>
+      <button id="html-import-ok-btn">Open</button>
+    </div>
+  </div>
+</div>
+
 <aside id="transform-panel" role="complementary" aria-label="Text transformations">
   <div id="tp-header">
     <span id="tp-title">Transform</span>
@@ -219,6 +288,7 @@
     <button class="tp-tab"        role="tab" data-tab="whitespace" aria-selected="false" aria-controls="tp-whitespace">Whitespace</button>
     <button class="tp-tab"        role="tab" data-tab="ctrlchars"  aria-selected="false" aria-controls="tp-ctrlchars">Ctrl Chars</button>
     <button class="tp-tab"        role="tab" data-tab="lines"      aria-selected="false" aria-controls="tp-lines">Lines</button>
+    <button class="tp-tab"        role="tab" data-tab="reformat"   aria-selected="false" aria-controls="tp-reformat">Reformat</button>
   </nav>
   <div id="tp-prefix" class="tp-pane" role="tabpanel">
     <section class="tp-section">
@@ -331,12 +401,22 @@
       <div id="ln-filter-info"  class="tp-info"  aria-live="polite"></div>
     </section>
   </div>
+  <div id="tp-reformat" class="tp-pane tp-pane--hidden" role="tabpanel">
+    <section class="tp-section">
+      <p class="tp-hint">Reformat the document for optimal visual layout. Available for JSON, YAML, and HTML.</p>
+      <button class="tp-apply tp-apply--full" id="btn-reformat">Reformat</button>
+      <div id="reformat-info" class="tp-info" style="margin-top:8px" aria-live="polite"></div>
+      <div id="reformat-error" class="tp-error" role="alert" aria-live="assertive" style="margin-top:8px"></div>
+    </section>
+  </div>
 </aside>
 
 <script src="https://cdn.jsdelivr.net/npm/turndown@7.2.0/dist/turndown.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/markdown.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
 <script>mermaid.initialize({ startOnLoad: false, theme: 'neutral' });</script>
 <script src="/static/js/mermaid_editor.js"></script>
 <script src="/static/js/editor.js"></script>

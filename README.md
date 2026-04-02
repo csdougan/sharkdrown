@@ -19,9 +19,26 @@ GHCR image: `ghcr.io/csdougan/sharkdrown`
 
 ### File & Format Support
 
-- File open/save via the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API) (Chrome/Edge; direct local filesystem access when running in a container)
-- **Standard Markdown** and **GitHub Flavoured Markdown (GFM)** format support
-- **Confluence wiki markup** format with conversion support
+- File open/save via the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API) (Chrome/Edge)
+- **Standard Markdown**, **GitHub Flavoured Markdown (GFM)**, and **Confluence wiki markup** formats
+- **YAML** — open, edit, save, and lint (yamllint)
+- **JSON** — open, edit, save, and lint (python json validation); JSON↔YAML conversion
+- **Plain text** — open and save as `.txt`
+- **HTML** — open as source code (in code view) or convert to Markdown; save as HTML
+- **EPUB/DOCX import** — open EPUB or Word documents as markdown tabs (via pandoc)
+- **EPUB/DOCX export** — export markdown to EPUB or DOCX (via pandoc)
+- Images preserved in both directions for EPUB and DOCX
+- File type picker modal for unrecognized file extensions
+- HTML import modal with radio options: "Open as HTML code" or "Convert to Markdown"
+
+### Linting
+
+- **Markdown linting** via pymarkdownlnt with flavor-specific rules (Standard, GitHub, Confluence)
+- **YAML linting** via yamllint
+- **JSON validation** via python json module (line/column of parse errors)
+- **HTML linting** via tidy
+- Issues displayed in a resizable pane below the editor, click to navigate to line
+- Markdown auto-fix supported for fixable rules
 
 ### Transform Panel
 
@@ -33,6 +50,7 @@ Text manipulation operations that work on the full document or the current selec
 - Whitespace: strip leading/trailing whitespace, collapse internal whitespace
 - Control characters: display and remove non-printable characters
 - Lines: deduplicate, remove blank lines
+- Reformat: pretty-print JSON, YAML, or HTML documents
 
 ### Line Filter Bar
 
@@ -88,14 +106,14 @@ GitHub Actions pipeline (`.github/workflows/build.yml`):
 |---------|-------------|---------|
 | Editor & preview | ✓ | ✓ |
 | File open/save | ✓ | ✗ (File System Access API not available) |
+| HTML editing & linting | ✓ | ✓ |
 | Mermaid visual editor | ✓ | ✓ |
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Server | Python 3.12, Flask 3.x, Gunicorn, pymdownx |
+| Server | Python 3.12, Flask 3.x, Gunicorn, pymdownx, pymarkdownlnt, html2text, pandoc, tidy, yamllint, PyYAML |
 | Client | Vanilla JS, CSS custom properties |
 | Preview rendering | highlight.js 11.9 (CDN), Mermaid.js (CDN), Turndown (CDN) |
 | Container | Python 3.12-slim |
-| CI/CD | GitHub Actions → GHCR (multi-platform) |

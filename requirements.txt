@@ -4,3 +4,6 @@ pymdown-extensions>=10.7
 pygments>=2.18
 gunicorn>=21.2
 pymarkdownlnt>=0.9.0
+html2text>=2024.2
+yamllint>=1.35
+pyyaml>=6.0

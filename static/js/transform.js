@@ -389,4 +389,38 @@ function filterLines(keep) {
 document.getElementById('btn-ln-keep-containing').addEventListener('click',   () => filterLines(true));
 document.getElementById('btn-ln-remove-containing').addEventListener('click', () => filterLines(false));
 
+// ── Reformat ─────────────────────────────────────────────────────────────
+document.getElementById('btn-reformat').addEventListener('click', async () => {
+  const info = document.getElementById('reformat-info');
+  const errEl = document.getElementById('reformat-error');
+  info.textContent = '';
+  errEl.textContent = '';
+
+  const tab = window.SD?.activeTab?.();
+  if (!tab) { errEl.textContent = 'No active tab'; return; }
+
+  const text = editor.value;
+
+  if (!['json', 'yaml', 'html'].includes(tab.type)) {
+    errEl.textContent = 'Reformat is only available for JSON, YAML, and HTML tabs';
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/format/' + tab.type, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: text }),
+    });
+    const data = await res.json();
+    if (!res.ok) { errEl.textContent = data.error || 'Format failed'; return; }
+    if (data.content.trimEnd() === text.trimEnd()) { info.textContent = 'Already formatted'; return; }
+    applyResult(data.content, { text: editor.value, mode: 'full' });
+    const labels = { json: 'JSON', yaml: 'YAML', html: 'HTML' };
+    info.textContent = `${labels[tab.type]} reformatted`;
+  } catch (e) {
+    errEl.textContent = `Format failed: ${e.message}`;
+  }
+});
+
 })();

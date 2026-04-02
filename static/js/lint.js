@@ -10,6 +10,11 @@ const btnLintClose  = document.getElementById('btn-lint-close');
 const btnLintFixAll = document.getElementById('btn-lint-fix-all');
 const btnLint       = document.getElementById('btn-lint');
 
+// Lint type: 'markdown', 'html', 'yaml', 'json', 'plaintext'
+// Detected from active tab type before running lint
+let lintType = 'markdown';
+let lintFlavor = 'standard'; // for markdown tabs: standard, github, confluence
+
 // Default height for lint pane: ~33% of pane-code height
 const DEFAULT_HEIGHT_RATIO = 0.33;
 let lintHeight = null;  // px — null means use default on first open
@@ -72,7 +77,7 @@ btnLintClose.addEventListener('click', closePane);
 // ── Render issues ──────────────────────────────────────────────────────
 function renderIssues(issues) {
   currentIssues = issues;
-  hasFixable    = issues.some(i => i.fixable);
+  hasFixable    = lintType === 'markdown' && issues.some(i => i.fixable);
   lintBody.innerHTML = '';
 
   if (issues.length === 0) {
@@ -86,13 +91,25 @@ function renderIssues(issues) {
   }
 
   lintTitle.textContent = `Lint Results — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`;
-  btnLintFixAll.hidden  = !hasFixable;
+  btnLintFixAll.hidden  = lintType === 'html' || !hasFixable;
 
   issues.forEach((issue, idx) => {
     const row = document.createElement('div');
     row.className = 'lint-issue';
     row.dataset.idx = idx;
 
+    if (lintType === 'html') {
+      // HTML lint issues from tidy are plain strings
+      const msg = document.createElement('span');
+      msg.className   = 'lint-msg';
+      msg.textContent = issue;
+      msg.title       = issue;
+      row.appendChild(msg);
+      lintBody.appendChild(row);
+      return;
+    }
+
+    // Markdown lint issues
     const pos = document.createElement('span');
     pos.className   = 'lint-pos';
     pos.textContent = `${issue.line}:${issue.col}`;
@@ -201,16 +218,56 @@ async function runLint() {
     document.querySelector('.view-btn[data-view="code"]')?.click();
   }
 
+  // Detect lint type and flavor from active tab
+  const tab = window.SD?.activeTab?.();
+  if (!tab) { showLintError('No active tab'); return; }
+
+  lintType = tab.type;
+  lintFlavor = tab.format || 'standard';
+
+  // Plaintext has no linter
+  if (lintType === 'plaintext') {
+    openPane();
+    lintTitle.textContent = 'Plain Text Lint';
+    lintBody.innerHTML = '';
+    const el = document.createElement('div');
+    el.className = 'lint-empty';
+    el.textContent = 'Plain text has no linter.';
+    lintBody.appendChild(el);
+    btnLintFixAll.hidden = true;
+    return;
+  }
+
+  const titles = {
+    html: 'HTML Lint',
+    yaml: 'YAML Lint',
+    json: 'JSON Lint',
+    markdown: 'Lint Results',
+  };
   openPane();
-  lintTitle.textContent = 'Lint Results — running…';
-  lintBody.innerHTML    = '';
-  btnLintFixAll.hidden  = true;
+  lintTitle.textContent = (titles[lintType] || 'Lint Results') + ' — running…';
+  lintBody.innerHTML = '';
+  btnLintFixAll.hidden = true;
 
   try {
-    const res  = await fetch('/api/lint', {
+    let endpoint = '/api/lint';
+    let body = { content: editor.value };
+
+    if (lintType === 'html') {
+      endpoint = '/api/lint/html';
+    } else if (lintType === 'yaml') {
+      endpoint = '/api/lint/yaml';
+    } else if (lintType === 'json') {
+      endpoint = '/api/lint/json';
+    } else if (lintType === 'markdown') {
+      endpoint = '/api/lint';
+      body.flavor = lintFlavor;
+    }
+
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: editor.value }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (data.error) { showLintError(data.error); return; }
