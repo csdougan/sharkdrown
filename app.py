@@ -9,7 +9,7 @@ import yaml
 from flask import Flask, render_template, request, jsonify
 import markdown
 import pymdownx
-from flaskwebgui import FlaskUI
+#from flaskwebgui import FlaskUI
 
 app = Flask(__name__)
 
@@ -283,6 +283,80 @@ def lint_json():
         }]})
 
 
+@app.route("/api/lint/openapi", methods=["POST"])
+def lint_openapi():
+    """Validate OpenAPI spec using openapi-spec-validator."""
+    from openapi_spec_validator import validate
+    data = request.get_json()
+    content = data.get("content", "")
+    try:
+        spec_dict = yaml.safe_load(content)
+        if spec_dict is None:
+            raise ValueError("Empty document — no YAML content parsed.")
+        if not isinstance(spec_dict, dict):
+            raise ValueError(f"Expected a YAML dict at the root, got {type(spec_dict).__name__}.")
+        # Check for the common mistake: openapi: <nested dict> instead of openapi: 3.0.0
+        if not isinstance(spec_dict.get("openapi"), str):
+            raise ValueError(
+                "The 'openapi' field must be a version string (e.g. '3.0.0') on the same line "
+                "as 'openapi:'. If 'openapi:' is followed by indented content on the next line, "
+                "YAML parses the entire block as the value of 'openapi' instead of treating them as siblings. "
+                "Ensure the first line reads: openapi: 3.0.0 (or 3.1.0, etc.)"
+            )
+        validate(spec_dict)
+        return jsonify({"issues": []})
+    except ValueError as e:
+        # Raised by our own checks above — structural YAML issue
+        return jsonify({"issues": [{
+            "line": 0,
+            "col": 0,
+            "rule": "openapi",
+            "message": str(e),
+            "fixable": False,
+        }]})
+    except yaml.YAMLError as e:
+        # YAML parse errors (ScannerError, ParserError, etc.)
+        note = ""
+        if "mapping values are not allowed here" in str(e):
+            note = (
+                " — a key-value pair is at the wrong indentation level. "
+                "In OpenAPI, 'openapi', 'info', 'paths', etc. must all be at the same "
+                "top-level indentation (no indent before 'paths:')."
+            )
+        return jsonify({"issues": [{
+            "line": getattr(e, 'problem_mark', None) and (getattr(e, 'problem_mark', None).line + 1) or 0,
+            "col": getattr(e, 'problem_mark', None) and (getattr(e, 'problem_mark', None). column + 1) or 0,
+            "rule": "yaml",
+            "message": f"YAML parse error{note}: {e}",
+            "fixable": False,
+        }]})
+    except Exception as e:
+        issues = []
+        msg = getattr(e, 'message', e.args[0] if e.args else str(e))
+        json_path = getattr(e, 'json_path', None)
+        path = getattr(e, 'path', [])
+        loc = str(list(path)) if path else (json_path or 'spec')
+
+        # TypeErrors from jsonschema internals are noisy — give a cleaner message
+        if isinstance(e, TypeError) or (isinstance(msg, str) and 'expected string or bytes-like' in msg):
+            msg = (
+                "Validation error: a key or value has the wrong type "
+                "(e.g. an integer where a string is required, such as response code 200 instead of '200'). "
+                f"Details: {msg}"
+            )
+            loc = 'spec'
+
+        issues.append({
+            "line": 0,
+            "col": 0,
+            "rule": loc,
+            "message": msg,
+            "fixable": False,
+        })
+        return jsonify({"issues": issues})
+        return jsonify({"issues": issues})
+
+
 @app.route("/api/format/json", methods=["POST"])
 def format_json():
     """Pretty-print JSON content."""
@@ -319,11 +393,10 @@ def format_html():
             ["tidy", "-i", "-q", "-w", "2"],
             input=content.encode("utf-8"),
             capture_output=True,
-            text=True,
             timeout=15,
         )
         # tidy outputs formatted HTML to stdout
-        formatted = result.stdout
+        formatted = result.stdout.decode("utf-8")
         return jsonify({"content": formatted})
     except subprocess.TimeoutExpired:
         return jsonify({"error": "HTML format timed out"}), 500
@@ -341,11 +414,10 @@ def lint_yaml():
             ["yamllint", "-f", "plain", "-"],
             input=content.encode("utf-8"),
             capture_output=True,
-            text=True,
             timeout=15,
         )
         issues = []
-        for line in result.stdout.splitlines():
+        for line in result.stdout.decode("utf-8").splitlines():
             # yamllint plain format: path:line:col: [error|warning] message
             m = re.match(r'([^:]+):(\d+):(\d+): \[(error|warning)\] (.+)', line)
             if m:
@@ -498,6 +570,6 @@ def convert_yaml_to_json():
 
 
 if __name__ == "__main__":
-    #app.run(debug=True, host="0.0.0.0", port=5000) 
-    FlaskUI(app, width=500, height=500).run()
+    app.run(debug=True, host="0.0.0.0", port=5000) 
+    #FlaskUI(app, width=500, height=500).run()
 

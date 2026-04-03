@@ -8,12 +8,14 @@ const lintBody      = document.getElementById('lint-body');
 const lintTitle     = document.getElementById('lint-title');
 const btnLintClose  = document.getElementById('btn-lint-close');
 const btnLintFixAll = document.getElementById('btn-lint-fix-all');
+const btnLintRefresh= document.getElementById('btn-lint-refresh');
 const btnLint       = document.getElementById('btn-lint');
 
 // Lint type: 'markdown', 'html', 'yaml', 'json', 'plaintext'
 // Detected from active tab type before running lint
 let lintType = 'markdown';
 let lintFlavor = 'standard'; // for markdown tabs: standard, github, confluence
+let lintBackend = 'pymarkdownlnt'; // which linter backend is running
 
 // Default height for lint pane: ~33% of pane-code height
 const DEFAULT_HEIGHT_RATIO = 0.33;
@@ -85,12 +87,12 @@ function renderIssues(issues) {
     el.className   = 'lint-empty';
     el.textContent = 'No issues found.';
     lintBody.appendChild(el);
-    lintTitle.textContent = 'Lint Results — No issues';
+    lintTitle.innerHTML = `<span class="lint-backend-badge">${lintBackend}</span>Lint — No issues`;
     btnLintFixAll.hidden = true;
     return;
   }
 
-  lintTitle.textContent = `Lint Results — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`;
+  lintTitle.innerHTML = `<span class="lint-backend-badge">${lintBackend}</span>Lint — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`;
   btnLintFixAll.hidden  = lintType === 'html' || !hasFixable;
 
   issues.forEach((issue, idx) => {
@@ -228,7 +230,8 @@ async function runLint() {
   // Plaintext has no linter
   if (lintType === 'plaintext') {
     openPane();
-    lintTitle.textContent = 'Plain Text Lint';
+    lintBackend = 'none';
+    lintTitle.innerHTML = '<span class="lint-backend-badge">none</span>Plain text — no linter';
     lintBody.innerHTML = '';
     const el = document.createElement('div');
     el.className = 'lint-empty';
@@ -238,22 +241,50 @@ async function runLint() {
     return;
   }
 
-  const titles = {
-    html: 'HTML Lint',
-    yaml: 'YAML Lint',
-    json: 'JSON Lint',
-    markdown: 'Lint Results',
+  const contentTypes = {
+    html: 'HTML',
+    yaml: 'YAML',
+    json: 'JSON',
+    markdown: 'Markdown',
+    openapi: 'OpenAPI',
+    plaintext: 'Plain text',
+  };
+
+  const backends = {
+    html: 'tidy',
+    yaml: 'yamllint',
+    json: 'json',
+    markdown: 'pymarkdownlnt',
+    openapi: 'openapi-spec-validator',
+    plaintext: 'none',
   };
   openPane();
-  lintTitle.textContent = (titles[lintType] || 'Lint Results') + ' — running…';
   lintBody.innerHTML = '';
   btnLintFixAll.hidden = true;
 
+  // Detect if YAML or JSON content is an OpenAPI spec
+  // Strip YAML document separator (---) before checking
+  // The version (3.0.0 etc.) may be on the same line as 'openapi:' OR on a subsequent line
+  const rawContent = editor.value;
+  const yamlContent = rawContent.replace(/^---\s*\n?/, '').trim();
+  const isOpenAPI = (
+    (lintType === 'yaml' && (
+      /^openapi:\s*[\d.]+/m.test(yamlContent) ||           // openapi: 3.0.0 on same line
+      /^openapi:\s*\n/m.test(yamlContent) ||                // openapi: alone on line (version follows)
+      yamlContent.startsWith('openapi:')                     // fallback: any openapi: at start
+    )) ||
+    (lintType === 'json' && /"openapi"\s*:\s*"[\d.]+"/.test(rawContent.trim()))
+  );
+
+
   try {
     let endpoint = '/api/lint';
-    let body = { content: editor.value };
+    let body = { content: rawContent };
 
-    if (lintType === 'html') {
+    if (isOpenAPI) {
+      endpoint = '/api/lint/openapi';
+      lintType = 'openapi';
+    } else if (lintType === 'html') {
       endpoint = '/api/lint/html';
     } else if (lintType === 'yaml') {
       endpoint = '/api/lint/yaml';
@@ -263,6 +294,9 @@ async function runLint() {
       endpoint = '/api/lint';
       body.flavor = lintFlavor;
     }
+
+    lintBackend = backends[lintType] || 'unknown';
+    lintTitle.innerHTML = `<span class="lint-backend-badge">${lintBackend}</span>${contentTypes[lintType] || 'Lint'} — running…`;
 
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -287,5 +321,8 @@ btnLint.addEventListener('click', () => {
 });
 
 btnLintFixAll.addEventListener('click', () => applyFix(null));
+btnLintRefresh.addEventListener('click', () => runLint());
+
+window.SD_lint = { refresh: runLint };
 
 })();

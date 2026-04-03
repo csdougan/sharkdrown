@@ -11,14 +11,21 @@ const DIAGRAM_TYPES = {
     label: 'Flowchart',
     header: 'flowchart TD',
     shapes: [
-      { id: 'rect',     label: 'Rectangle',   preview: '▭', mermaid: (id,lbl) => `${id}[${lbl}]` },
-      { id: 'round',    label: 'Round',        preview: '▬', mermaid: (id,lbl) => `${id}(${lbl})` },
-      { id: 'stadium',  label: 'Stadium',      preview: '⬭', mermaid: (id,lbl) => `${id}([${lbl}])` },
-      { id: 'diamond',  label: 'Diamond',      preview: '◇', mermaid: (id,lbl) => `${id}{${lbl}}` },
-      { id: 'hex',      label: 'Hexagon',      preview: '⬡', mermaid: (id,lbl) => `${id}{{${lbl}}}` },
-      { id: 'circle',   label: 'Circle',       preview: '○', mermaid: (id,lbl) => `${id}((${lbl}))` },
-      { id: 'db',       label: 'Database',     preview: '⊍', mermaid: (id,lbl) => `${id}[(${lbl})]` },
-      { id: 'para',     label: 'Parallelogram',preview: '▱', mermaid: (id,lbl) => `${id}[/${lbl}/]` },
+      { id: 'rect',       label: 'Rectangle',        preview: '▬', mermaid: (id,lbl) => `${id}[${lbl}]` },
+      { id: 'round',      label: 'Rounded Rect',      preview: '▢', mermaid: (id,lbl) => `${id}(${lbl})` },
+      { id: 'stadium',    label: 'Stadium',            preview: '⬭', mermaid: (id,lbl) => `${id}([${lbl}])` },
+      { id: 'subroutine', label: 'Subroutine',         preview: '▣', mermaid: (id,lbl) => `${id}[[${lbl}]]` },
+      { id: 'diamond',    label: 'Rhombus',            preview: '◇', mermaid: (id,lbl) => `${id}{${lbl}}` },
+      { id: 'hex',        label: 'Hexagon',            preview: '⬡', mermaid: (id,lbl) => `${id}{{${lbl}}}` },
+      { id: 'circle',     label: 'Circle',             preview: '○', mermaid: (id,lbl) => `${id}((${lbl}))` },
+      { id: 'ellipse',    label: 'Ellipse',            preview: '⊙', mermaid: (id,lbl) => `${id}((${lbl}))` },
+      { id: 'db',         label: 'Database',           preview: '⌗', mermaid: (id,lbl) => `${id}[(${lbl})]` },
+      { id: 'asymmetric', label: 'Asymmetric',         preview: '▷', mermaid: (id,lbl) => `${id}>${lbl}]` },
+      { id: 'para',       label: 'Parallelogram',      preview: '▱', mermaid: (id,lbl) => `${id}[/${lbl}/]` },
+      { id: 'para_alt',   label: 'Parallelogram Alt',  preview: '▰', mermaid: (id,lbl) => `${id}[\\${lbl}\\]` },
+      { id: 'trapezoid',  label: 'Trapezoid',          preview: '⏢', mermaid: (id,lbl) => `${id}[/${lbl}\\]` },
+      { id: 'trap_alt',   label: 'Trapezoid Alt',      preview: '⏣', mermaid: (id,lbl) => `${id}[\\${lbl}/]` },
+      { id: 'dbl_circle', label: 'Double Circle',      preview: '◎', mermaid: (id,lbl) => `${id}(((${lbl})))` },
     ],
     edgeTypes: [
       { id: 'arrow',   label: '→ Arrow',       syntax: '-->' },
@@ -76,7 +83,8 @@ let state = {
   diagramType:  'flowchart',
   nodes:        [],   // { id, type, label, x, y, w, h }
   edges:        [],   // { id, from, to, label, edgeType }
-  selected:     new Set(),
+  selected:      new Set(),
+  selectedEdges: new Set(),
   clipboard:    null,
   connecting:   null, // { fromId } when drawing an edge
   dragging:     null, // { nodeId, startX, startY, origPositions }
@@ -85,6 +93,7 @@ let state = {
   pendingShape: null, // shape to place on next canvas click
   sourceTabId:  null, // markdown tab this diagram came from
   sourceMdId:   null, // index of mermaid block in that tab
+  linkMode:     false, // persistent link-drawing mode
 };
 
 // DOM refs — set on mount
@@ -120,15 +129,16 @@ function buildHTML() {
       <span class="me-label">Edge</span>
       <select class="me-select" id="me-edge-type" aria-label="Edge type"></select>
     </div>
+    <button class="me-btn me-btn-accent" id="me-btn-link" title="Toggle link mode (L) — click any node to draw a connection"><i class="bi bi-link-45deg"></i> Link</button>
     <span class="me-sep"></span>
-    <button class="me-btn" id="me-btn-delete"   title="Delete selected (Del)">🗑</button>
-    <button class="me-btn" id="me-btn-clear"    title="Clear all">✕ Clear</button>
+    <button class="me-btn" id="me-btn-delete"   title="Delete selected (Del)"><i class="bi bi-trash3"></i></button>
+    <button class="me-btn" id="me-btn-clear"    title="Clear all"><i class="bi bi-x-lg"></i> Clear</button>
     <span class="me-sep"></span>
-    <button class="me-btn me-btn-accent" id="me-btn-import" title="Import Mermaid syntax">⬆ Import</button>
-    <button class="me-btn me-btn-accent" id="me-btn-insert" title="Insert into markdown tab">⬇ Insert</button>
+    <button class="me-btn me-btn-accent" id="me-btn-import" title="Import Mermaid syntax"><i class="bi bi-upload"></i> Import</button>
+    <button class="me-btn me-btn-accent" id="me-btn-insert" title="Insert into markdown tab"><i class="bi bi-download"></i> Insert</button>
     <span class="me-sep"></span>
-    <button class="me-btn" id="me-btn-svg"  title="Export SVG">↓ SVG</button>
-    <button class="me-btn" id="me-btn-png"  title="Export PNG">↓ PNG</button>
+    <button class="me-btn" id="me-btn-svg"  title="Export SVG"><i class="bi bi-file-earmark-arrow-down"></i> SVG</button>
+    <button class="me-btn" id="me-btn-png"  title="Export PNG"><i class="bi bi-file-earmark-image"></i> PNG</button>
   </div>
 
   <div class="me-workspace">
@@ -229,6 +239,7 @@ function bindEvents() {
   mountedContainer.querySelector('#me-btn-import').addEventListener('click', importFromText);
   mountedContainer.querySelector('#me-btn-svg').addEventListener('click', exportSVG);
   mountedContainer.querySelector('#me-btn-png').addEventListener('click', exportPNG);
+  mountedContainer.querySelector('#me-btn-link').addEventListener('click', toggleLinkMode);
 
   // Source textarea → re-parse on blur
   mountedContainer.querySelector('#me-source').addEventListener('blur', e => {
@@ -263,7 +274,18 @@ function selectPendingShape(shapeId, btn) {
 function clearPendingShape() {
   state.pendingShape = null;
   mountedContainer.querySelectorAll('.me-shape-btn').forEach(b => b.classList.remove('active'));
-  svgEl.style.cursor = '';
+  svgEl.style.cursor = state.linkMode ? 'crosshair' : '';
+}
+
+function toggleLinkMode() {
+  state.linkMode = !state.linkMode;
+  state.connecting = null;
+  canvasG.querySelector('#me-connect-line')?.remove();
+  const btn = mountedContainer.querySelector('#me-btn-link');
+  btn.classList.toggle('active', state.linkMode);
+  svgEl.classList.toggle('me-link-mode', state.linkMode);
+  svgEl.style.cursor = state.linkMode ? 'crosshair' : '';
+  setStatus(state.linkMode ? 'Link mode: click a node to start a connection' : 'Ready');
 }
 
 // ── Canvas mouse handling ──────────────────────────────────────────────
@@ -284,38 +306,57 @@ function onCanvasClick(e) {
   // Cancel connection on background click
   if (state.connecting && !nodeEl) {
     state.connecting = null;
-    svgEl.style.cursor = '';
-    setStatus('Connection cancelled');
+    if (state.linkMode) {
+      svgEl.style.cursor = 'crosshair'; // keep link mode active
+      setStatus('Link mode — click a node to connect. Escape to exit.');
+    } else {
+      svgEl.style.cursor = '';
+      setStatus('Connection cancelled');
+    }
     return;
   }
 
-  // Port click outside connecting mode — start a connection
+  // Port click — start a connection (only if not already connecting)
   if (!state.connecting && e.target.classList.contains('me-port')) {
-    const fromNodeEl = e.target.closest('.me-node');
-    if (fromNodeEl) {
-      state.connecting = { fromId: fromNodeEl.dataset.nodeId };
+    const fromId = e.target.dataset.nodeId;
+    if (fromId) {
+      state.connecting = { fromId };
       svgEl.style.cursor = 'crosshair';
       setStatus('Release mouse over another node to connect — Escape to cancel');
     }
     return;
   }
 
+  // Node click in link mode — start connection; don't let click event cancel it
+  // (onCanvasMouseDown already set state.connecting for link mode)
+  if (nodeEl && state.linkMode && state.connecting) {
+    return; // let mouseup handle it
+  }
+
   if (nodeEl) return;
-  if (!state.pendingShape) return;
+  if (!state.pendingShape) {
+    state.selected.clear();
+    state.selectedEdges.clear();
+    render();
+    mountedContainer.querySelector('#me-props').innerHTML = '';
+    return;
+  }
 
   const pt    = getSVGPoint(e);
   const shape = DIAGRAM_TYPES[state.diagramType].shapes.find(s => s.id === state.pendingShape);
   if (!shape) return;
 
-  const label = `Node ${state.nextId}`;
+  const label = `${shape.label} ${state.nextId}`;
+  const isCircular = state.pendingShape === 'circle' || state.pendingShape === 'dbl_circle';
+  const nw = 120, nh = isCircular ? 60 : 50;
   const node  = {
     id:    `N${state.nextId++}`,
     type:  state.pendingShape,
     label,
-    x:     pt.x - 60,
-    y:     pt.y - 25,
-    w:     120,
-    h:     50,
+    x:     pt.x - nw / 2,
+    y:     pt.y - nh / 2,
+    w:     isCircular ? 60 : nw,
+    h:     nh,
   };
   state.nodes.push(node);
   clearPendingShape();
@@ -328,16 +369,28 @@ function onCanvasClick(e) {
 let dragState = null;
 
 function onCanvasMouseDown(e) {
-  if (e.target.classList.contains('me-port')) return; // port has its own handler
   const nodeEl = e.target.closest('.me-node');
-  if (!nodeEl) return;
 
-  // If connecting, don't start a drag — completion is handled in onClick
-  if (state.connecting) return;
+  // In link mode, any click on a node (including a port) starts a connection
+  if (state.linkMode && nodeEl) {
+    e.preventDefault();
+    const nodeId = nodeEl.dataset.nodeId;
+    state.connecting = { fromId: nodeId };
+    svgEl.style.cursor = 'crosshair';
+    setStatus('Link mode — release over another node to connect. Escape to cancel.');
+    return;
+  }
+
+  // Port has its own mousedown handler in drawNodePorts
+  if (e.target.classList.contains('me-port')) return;
+  if (!nodeEl) return;
 
   const nodeId = nodeEl.dataset.nodeId;
   const node   = state.nodes.find(n => n.id === nodeId);
   if (!node) return;
+
+  // If connecting via port, don't start a drag
+  if (state.connecting) return;
 
   const pt = getSVGPoint(e);
   const toMove = state.selected.has(nodeId) ? [...state.selected] : [nodeId];
@@ -361,9 +414,12 @@ function onCanvasMouseMove(e) {
     const fx = fromNode.x + fromNode.w / 2;
     const fy = fromNode.y + fromNode.h / 2;
 
-    // Check if hovering a valid target node
-    const nodeEl  = e.target.closest('.me-node');
-    const isValid = nodeEl && nodeEl.dataset.nodeId !== state.connecting.fromId;
+    // Check if hovering a valid target node (ports are top-level SVG children)
+    let nodeId = null;
+    const nodeEl = e.target.closest('.me-node');
+    if (nodeEl) nodeId = nodeEl.dataset.nodeId;
+    else if (e.target.classList.contains('me-port')) nodeId = e.target.dataset.nodeId;
+    const isValid = nodeId && nodeId !== state.connecting.fromId;
     const colour  = isValid ? '#00d4a0' : '#ff8c00'; // green = valid, orange = dragging
 
     let line = canvasG.querySelector('#me-connect-line');
@@ -376,7 +432,7 @@ function onCanvasMouseMove(e) {
       canvasG.appendChild(line);
     }
     const targetNode = isValid
-      ? state.nodes.find(n => n.id === nodeEl.dataset.nodeId)
+      ? state.nodes.find(n => n.id === nodeId)
       : null;
 
     line.setAttribute('x1', fx);
@@ -404,10 +460,13 @@ function onCanvasMouseMove(e) {
 }
 
 function onCanvasMouseUp(e) {
-  // Complete a pending connection — fires on whatever node the mouse is released over
+  // Complete a pending connection — fires on whatever node or port the mouse is released over
   if (state.connecting) {
     canvasG.querySelector('#me-connect-line')?.remove();
-    const nodeEl = e.target.closest('.me-node');
+    // Ports are top-level SVG children, so also check for .me-port target
+    const nodeEl = e.target.closest('.me-node') ||
+                   (e.target.classList.contains('me-port') ?
+                    canvasG.querySelector(`.me-node[data-node-id="${e.target.dataset.nodeId}"]`) : null);
     if (nodeEl) {
       const toId = nodeEl.dataset.nodeId;
       if (toId !== state.connecting.fromId) {
@@ -427,10 +486,10 @@ function onCanvasMouseUp(e) {
         setStatus('Cannot connect a node to itself');
       }
     } else {
-      setStatus('Ready');
+      setStatus(state.linkMode ? 'Link mode — click a node to connect. Escape to exit.' : 'Ready');
     }
     state.connecting = null;
-    svgEl.style.cursor = '';
+    svgEl.style.cursor = state.linkMode ? 'crosshair' : '';
     render();
     return;
   }
@@ -448,12 +507,23 @@ function onCanvasMouseUp(e) {
 }
 
 function onCanvasKey(e) {
-  if (e.key === 'Escape' && state.connecting) {
-    canvasG.querySelector('#me-connect-line')?.remove();
-    state.connecting = null;
-    svgEl.style.cursor = '';
-    setStatus('Connection cancelled');
-    return;
+  if (e.key === 'Escape') {
+    if (state.connecting) {
+      canvasG.querySelector('#me-connect-line')?.remove();
+      state.connecting = null;
+      svgEl.style.cursor = state.linkMode ? 'crosshair' : '';
+      setStatus(state.linkMode ? 'Link mode — click to connect. Escape again to exit.' : 'Ready');
+      return;
+    }
+    if (state.linkMode) {
+      toggleLinkMode();
+      return;
+    }
+  }
+  if (e.key === 'l' || e.key === 'L') {
+    if (document.activeElement !== mountedContainer.querySelector('#me-source')) {
+      toggleLinkMode(); return;
+    }
   }
   if (e.key === 'Delete' || e.key === 'Backspace') {
     if (document.activeElement !== mountedContainer.querySelector('#me-source')) {
@@ -466,6 +536,7 @@ function onCanvasKey(e) {
 
 // ── Selection ──────────────────────────────────────────────────────────
 function selectNode(id, multi) {
+  state.selectedEdges.clear();
   if (!multi) state.selected.clear();
   if (state.selected.has(id)) state.selected.delete(id);
   else state.selected.add(id);
@@ -473,11 +544,32 @@ function selectNode(id, multi) {
   render();
 }
 
-function deleteSelected() {
-  state.nodes  = state.nodes.filter(n => !state.selected.has(n.id));
-  state.edges  = state.edges.filter(e =>
-    !state.selected.has(e.from) && !state.selected.has(e.to));
+function selectEdge(id, multi) {
   state.selected.clear();
+  mountedContainer.querySelector('#me-props').innerHTML = '';
+  if (!multi) state.selectedEdges.clear();
+  if (state.selectedEdges.has(id)) state.selectedEdges.delete(id);
+  else state.selectedEdges.add(id);
+  svgEl.focus();
+  render();
+}
+
+function editEdgeLabel(edgeId) {
+  const edge = state.edges.find(e => e.id === edgeId);
+  if (!edge) return;
+  const newLabel = prompt('Edge label:', edge.label || '');
+  if (newLabel === null) return;
+  edge.label = newLabel;
+  render(); updateSource();
+}
+
+function deleteSelected() {
+  state.nodes = state.nodes.filter(n => !state.selected.has(n.id));
+  state.edges = state.edges.filter(e =>
+    !state.selected.has(e.from) && !state.selected.has(e.to) &&
+    !state.selectedEdges.has(e.id));
+  state.selected.clear();
+  state.selectedEdges.clear();
   render(); updateSource();
   mountedContainer.querySelector('#me-props').innerHTML = '';
 }
@@ -589,14 +681,60 @@ function showProps(nodeId) {
 
 // ── SVG rendering ──────────────────────────────────────────────────────
 function render() {
-  // Remove existing nodes and edges (keep defs and grid bg)
-  canvasG.querySelectorAll('.me-node, .me-edge, .me-edge-label').forEach(el => el.remove());
+  // Remove existing nodes, edges, ports (keep defs and grid bg)
+  canvasG.querySelectorAll('.me-node, .me-edge, .me-edge-hit, .me-edge-label, .me-er-label, .me-port').forEach(el => el.remove());
 
   // Draw edges first (behind nodes)
   state.edges.forEach(drawEdge);
 
   // Draw nodes
   state.nodes.forEach(drawNode);
+
+  // Draw connection port handles — rendered as top-level SVG children so
+  // mouseleave on the node group doesn't hide ports when cursor reaches them
+  drawPorts();
+}
+
+function drawPorts() {
+  // Ports are now drawn inside drawNode() as children of each node group.
+  // This ensures the CSS selector .me-node:hover .me-port works correctly.
+}
+
+function drawNodePorts(node, nodeG) {
+  const ports = [
+    { cx: node.w / 2, cy: 0,             side: 'top' },
+    { cx: node.w,     cy: node.h / 2,     side: 'right' },
+    { cx: node.w / 2, cy: node.h,         side: 'bottom' },
+    { cx: 0,          cy: node.h / 2,     side: 'left' },
+  ];
+  ports.forEach(pt => {
+    const port = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    port.setAttribute('cx', pt.cx);
+    port.setAttribute('cy', pt.cy);
+    port.setAttribute('r', '5');
+    port.setAttribute('class', 'me-port');
+    port.dataset.nodeId = node.id;
+    port.addEventListener('mouseenter', () => {
+      port.setAttribute('opacity', '1');
+      port.setAttribute('pointer-events', 'all');
+    });
+    port.addEventListener('mouseleave', () => {
+      // Only hide if not in connecting mode for this port's node
+      if (!state.connecting || state.connecting.fromId !== node.id) {
+        port.setAttribute('opacity', '0');
+        port.setAttribute('pointer-events', 'none');
+      }
+    });
+    port.addEventListener('mousedown', e => {
+      e.stopPropagation();
+      state.connecting = { fromId: node.id };
+      svgEl.style.cursor = 'crosshair';
+      setStatus('Release over another node to connect — Escape to cancel');
+      port.setAttribute('opacity', '1');
+      port.setAttribute('pointer-events', 'all');
+    });
+    nodeG.appendChild(port);
+  });
 }
 
 function drawNode(node) {
@@ -613,32 +751,24 @@ function drawNode(node) {
   text.setAttribute('y', node.h / 2 + 5);
   text.setAttribute('text-anchor', 'middle');
   text.setAttribute('class', 'me-node-label');
-  text.textContent = node.label;
+
+  // start/end: no label text (the filled circle IS the marker)
+  if (node.type === 'start' || node.type === 'end') {
+    text.textContent = '';
+  } else if (node.type === 'choice') {
+    text.textContent = '?';
+  } else if (node.type === 'fork') {
+    text.textContent = '[ fork ]';
+  } else {
+    text.textContent = node.label;
+  }
   g.appendChild(text);
 
-  // Connection port handles — one on each side, shown on hover
-  const ports = [
-    { cx: node.w / 2, cy: 0 },           // top
-    { cx: node.w,     cy: node.h / 2 },  // right
-    { cx: node.w / 2, cy: node.h },      // bottom
-    { cx: 0,          cy: node.h / 2 },  // left
-  ];
-  ports.forEach(pt => {
-    const port = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    port.setAttribute('cx', pt.cx);
-    port.setAttribute('cy', pt.cy);
-    port.setAttribute('r', '5');
-    port.setAttribute('class', 'me-port');
-    port.addEventListener('mousedown', e => {
-      e.stopPropagation();
-      state.connecting = { fromId: node.id };
-      svgEl.style.cursor = 'crosshair';
-      setStatus('Release mouse over another node to connect — Escape to cancel');
-    });
-    g.appendChild(port);
-  });
-
   g.addEventListener('dblclick', () => editLabel(node.id));
+
+  // Ports are now children of the node group — CSS handles visibility via .me-node:hover .me-port
+  // JS handlers on ports manage visibility during active connections
+  drawNodePorts(node, g);
 
   canvasG.appendChild(g);
 }
@@ -646,41 +776,135 @@ function drawNode(node) {
 function shapeForNode(node) {
   const { type, w, h } = node;
   const sel = state.selected.has(node.id);
+  const cls = 'me-shape' + (sel ? ' selected' : '');
 
-  if (type === 'diamond') {
+  if (type === 'diamond' || type === 'choice') {
     const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
     poly.setAttribute('points', `${w/2},0 ${w},${h/2} ${w/2},${h} 0,${h/2}`);
-    poly.setAttribute('class', 'me-shape' + (sel ? ' selected' : ''));
+    poly.setAttribute('class', cls);
     return poly;
   }
-  if (type === 'circle') {
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+  if (type === 'circle' || type === 'dbl_circle') {
+    const r = Math.min(w, h) / 2;
+    if (type === 'dbl_circle') {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const outer = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      outer.setAttribute('cx', w / 2); outer.setAttribute('cy', h / 2);
+      outer.setAttribute('r', r);
+      outer.setAttribute('class', cls);
+      const inner = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      inner.setAttribute('cx', w / 2); inner.setAttribute('cy', h / 2);
+      inner.setAttribute('r', r - 5);
+      inner.setAttribute('class', cls);
+      g.appendChild(outer);
+      g.appendChild(inner);
+      return g;
+    }
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle.setAttribute('cx', w / 2); circle.setAttribute('cy', h / 2);
-    circle.setAttribute('rx', w / 2); circle.setAttribute('ry', h / 2);
-    circle.setAttribute('class', 'me-shape' + (sel ? ' selected' : ''));
+    circle.setAttribute('r', r);
+    circle.setAttribute('class', cls);
     return circle;
   }
+  if (type === 'ellipse') {
+    const ellipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+    ellipse.setAttribute('cx', w / 2); ellipse.setAttribute('cy', h / 2);
+    ellipse.setAttribute('rx', w / 2); ellipse.setAttribute('ry', h / 2);
+    ellipse.setAttribute('class', cls);
+    return ellipse;
+  }
   if (type === 'hex') {
-    const hw = w / 2, hh = h / 2, off = w * 0.15;
+    const off = w * 0.15;
     const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
     poly.setAttribute('points',
-      `${off},0 ${w-off},0 ${w},${hh} ${w-off},${h} ${off},${h} 0,${hh}`);
-    poly.setAttribute('class', 'me-shape' + (sel ? ' selected' : ''));
+      `${off},0 ${w-off},0 ${w},${h/2} ${w-off},${h} ${off},${h} 0,${h/2}`);
+    poly.setAttribute('class', cls);
     return poly;
   }
   if (type === 'para') {
     const off = w * 0.15;
     const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
     poly.setAttribute('points', `${off},0 ${w},0 ${w-off},${h} 0,${h}`);
-    poly.setAttribute('class', 'me-shape' + (sel ? ' selected' : ''));
+    poly.setAttribute('class', cls);
     return poly;
   }
-  // Default: rect (with rx for round/stadium)
+  if (type === 'para_alt') {
+    const off = w * 0.15;
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('points', `0,0 ${w-off},0 ${w},${h} ${off},${h}`);
+    poly.setAttribute('class', cls);
+    return poly;
+  }
+  if (type === 'asymmetric') {
+    const tip = w * 0.85;
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('points', `0,0 ${tip},0 ${w},${h/2} ${tip},${h} 0,${h}`);
+    poly.setAttribute('class', cls);
+    return poly;
+  }
+  if (type === 'trapezoid') {
+    const off = w * 0.15;
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('points', `${off},0 ${w-off},0 ${w},${h} 0,${h}`);
+    poly.setAttribute('class', cls);
+    return poly;
+  }
+  if (type === 'trap_alt') {
+    const off = w * 0.15;
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('points', `0,0 ${w},0 ${w-off},${h} ${off},${h}`);
+    poly.setAttribute('class', cls);
+    return poly;
+  }
+  if (type === 'db') {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const rx = w / 2, ry = Math.max(8, h * 0.18);
+    const body = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    body.setAttribute('d',
+      `M 0,${ry} A ${rx},${ry} 0 0,0 ${w},${ry} L ${w},${h-ry} A ${rx},${ry} 0 0,1 0,${h-ry} Z`);
+    body.setAttribute('class', cls);
+    const topEllipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+    topEllipse.setAttribute('cx', w / 2); topEllipse.setAttribute('cy', ry);
+    topEllipse.setAttribute('rx', rx); topEllipse.setAttribute('ry', ry);
+    topEllipse.setAttribute('class', cls);
+    g.appendChild(body);
+    g.appendChild(topEllipse);
+    return g;
+  }
+  if (type === 'subroutine') {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('width', w); rect.setAttribute('height', h);
+    rect.setAttribute('rx', 2); rect.setAttribute('ry', 2);
+    rect.setAttribute('class', cls);
+    const inset = 8;
+    const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line1.setAttribute('x1', inset); line1.setAttribute('y1', 0);
+    line1.setAttribute('x2', inset); line1.setAttribute('y2', h);
+    line1.setAttribute('class', 'me-shape-line');
+    const line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line2.setAttribute('x1', w - inset); line2.setAttribute('y1', 0);
+    line2.setAttribute('x2', w - inset); line2.setAttribute('y2', h);
+    line2.setAttribute('class', 'me-shape-line');
+    g.appendChild(rect);
+    g.appendChild(line1);
+    g.appendChild(line2);
+    return g;
+  }
+  if (type === 'start' || type === 'end') {
+    const r = Math.min(w, h) / 2;
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', w / 2); circle.setAttribute('cy', h / 2);
+    circle.setAttribute('r', r);
+    circle.setAttribute('class', 'me-shape me-shape--terminal' + (sel ? ' selected' : ''));
+    return circle;
+  }
+  // Default: rect
   const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
   rect.setAttribute('width', w); rect.setAttribute('height', h);
-  const rx = type === 'round' ? 8 : type === 'stadium' ? h / 2 : type === 'db' ? 8 : 4;
+  const rx = type === 'round' ? 10 : type === 'stadium' ? h / 2 : 2;
   rect.setAttribute('rx', rx); rect.setAttribute('ry', rx);
-  rect.setAttribute('class', 'me-shape' + (sel ? ' selected' : ''));
+  rect.setAttribute('class', cls);
   return rect;
 }
 
@@ -696,16 +920,78 @@ function drawEdge(edge) {
   const { x: x1, y: y1 } = borderPoint(from, tx, ty);
   const { x: x2, y: y2 } = borderPoint(to, fx, fy);
 
+  const isEr = state.diagramType === 'er';
+  const isSelected = state.selectedEdges.has(edge.id);
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  const mx   = (x1 + x2) / 2, my = (y1 + y2) / 2 - 20;
-  path.setAttribute('d', `M${x1},${y1} Q${mx},${my} ${x2},${y2}`);
-  path.setAttribute('class', 'me-edge' + (edge.edgeType === 'dotted' ? ' dotted' : edge.edgeType === 'thick' ? ' thick' : ''));
-  path.setAttribute('marker-end', 'url(#me-arrow)');
-  canvasG.insertBefore(path, canvasG.querySelector('.me-node'));
+
+  if (isEr) {
+    // ER edges: straight line with cardinality notation at each end
+    path.setAttribute('d', `M${x1},${y1} L${x2},${y2}`);
+    path.setAttribute('class', 'me-edge me-edge--er' + (isSelected ? ' selected' : ''));
+  } else {
+    // Flowchart/sequence/state: curved line with arrow
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - 20;
+    path.setAttribute('d', `M${x1},${y1} Q${mx},${my} ${x2},${y2}`);
+    path.setAttribute('class', 'me-edge' +
+      (edge.edgeType === 'dotted' ? ' dotted' : edge.edgeType === 'thick' ? ' thick' : '') +
+      (isSelected ? ' selected' : ''));
+    path.setAttribute('marker-end', isSelected ? 'url(#me-arrow-sel)' : 'url(#me-arrow)');
+  }
+
+  const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  hitPath.setAttribute('d', path.getAttribute('d'));
+  hitPath.setAttribute('class', 'me-edge-hit');
+  hitPath.dataset.edgeId = edge.id;
+  hitPath.addEventListener('click', e => {
+    e.stopPropagation();
+    selectEdge(edge.id, e.ctrlKey || e.metaKey);
+  });
+  hitPath.addEventListener('dblclick', e => {
+    e.stopPropagation();
+    editEdgeLabel(edge.id);
+  });
+
+  const firstNode = canvasG.querySelector('.me-node');
+  canvasG.insertBefore(path, firstNode);
+  canvasG.insertBefore(hitPath, firstNode);
+
+  // ER cardinality labels at each endpoint
+  if (isEr && edge.syntax) {
+    const parts = edge.syntax.split('--');
+    const fromCard = parts[0] || '';
+    const toCard   = parts[1] || '';
+
+    // Compute offset direction perpendicular to the edge line
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    // Offset the cardinality text slightly inward from border points
+    const off = 8;
+    const nx = -dy / len * off, ny = dx / len * off;
+
+    if (fromCard) {
+      const t1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      t1.setAttribute('x', x1 + nx);
+      t1.setAttribute('y', y1 + ny + 4);
+      t1.setAttribute('text-anchor', 'middle');
+      t1.setAttribute('class', 'me-er-label');
+      t1.textContent = fromCard;
+      canvasG.appendChild(t1);
+    }
+    if (toCard) {
+      const t2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      t2.setAttribute('x', x2 - nx);
+      t2.setAttribute('y', y2 - ny + 4);
+      t2.setAttribute('text-anchor', 'middle');
+      t2.setAttribute('class', 'me-er-label');
+      t2.textContent = toCard;
+      canvasG.appendChild(t2);
+    }
+  }
 
   if (edge.label) {
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - 12;
     const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    txt.setAttribute('x', mx); txt.setAttribute('y', my - 4);
+    txt.setAttribute('x', mx); txt.setAttribute('y', my);
     txt.setAttribute('text-anchor', 'middle');
     txt.setAttribute('class', 'me-edge-label');
     txt.textContent = edge.label;
@@ -817,6 +1103,39 @@ function parseMermaid(src) {
   const nodeMap = {};
 
   lines.slice(1).forEach(line => {
+    // ER entity definition: Customer {
+    if (state.diagramType === 'er') {
+      const entityMatch = line.match(/^(\w+)\s+\{$/);
+      if (entityMatch) {
+        const id = entityMatch[1];
+        if (!nodeMap[id]) {
+          nodeMap[id] = { id, type: 'entity', label: id, x, y, w: 140, h: 60 };
+          state.nodes.push(nodeMap[id]);
+          x += 180; col++;
+          if (col % 3 === 0) { x = 80; y += 90; }
+        }
+        return;
+      }
+      // ER edge: Customer ||--o{ Order : places
+      const erEdgeMatch = line.match(/^(\w+)\s+(.+?)\s*--\s*(.+?)\s+(\w+)\s*:\s*(.+)?$/);
+      if (erEdgeMatch) {
+        const [, from, leftCard, rightCard, to, label] = erEdgeMatch;
+        const syntax = leftCard + '--' + rightCard;
+        [from, to].forEach(id => {
+          if (!nodeMap[id]) {
+            nodeMap[id] = { id, type: 'entity', label: id, x, y, w: 140, h: 60 };
+            state.nodes.push(nodeMap[id]);
+            x += 180; col++;
+            if (col % 3 === 0) { x = 80; y += 90; }
+          }
+        });
+        const edgeTypeId = Object.values(DIAGRAM_TYPES.er.edgeTypes).find(e => e.syntax === syntax)?.id || 'one_one';
+        state.edges.push({ id: `E${state.nextId++}`, from, to, label: (label || '').trim(), edgeType: edgeTypeId, syntax });
+        return;
+      }
+      return;
+    }
+
     // Edge: A --> B or A -->|label| B
     const edgeMatch = line.match(/^(\w+)\s+(--[->.]?[->]?|==+>|-\.-?>?)\|?([^|]*)\|?\s+(\w+)/);
     if (edgeMatch) {
