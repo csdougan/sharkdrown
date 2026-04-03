@@ -1362,6 +1362,17 @@ html, body {
   fill: var(--accent);
   stroke: none;
 }
+.me-shape--section { fill: var(--accent2); opacity: 0.25; }
+.me-shape--c4-person { fill: #1a6fa6; }
+.me-shape--c4-system { fill: #1a6fa6; }
+.me-shape--c4-ext { fill: var(--bg2); }
+.me-shape--boundary { fill: none; stroke-dasharray: 8 4; }
+.me-class-header { fill: var(--bg3); stroke: none; }
+.me-class-divider { stroke: var(--border); stroke-width: 1; fill: none; }
+.me-class-member { fill: var(--text1); font-family: var(--font-mono); font-size: 11px; pointer-events: none; user-select: none; }
+.me-class-stereotype { fill: var(--text2); font-family: var(--font-mono); font-size: 10px; font-style: italic; pointer-events: none; user-select: none; }
+.me-task-score-bar { fill: var(--accent); }
+.me-task-score-empty { fill: var(--bg1); stroke: var(--border); stroke-width: 0.5; }
 .me-node { cursor: move; }
 .me-svg.me-link-mode .me-node { cursor: crosshair; }
 .me-node.selected .me-shape { stroke: var(--accent); fill: var(--bg3); }
